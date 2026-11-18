@@ -35,7 +35,7 @@ technical words on a screen. Phone width, light and dark.
 - [x] 10. **Worker** (`worker/src`). Tests: reads, plans the next read,
   survives a failing mailbox, heals a lost job.
 - [x] 11. Rulebook, `render.yaml`, `.env.example`, help pages.
-- [ ] 12. Fresh reviewer; fix what it finds.
+- [x] 12. Fresh reviewer; fix what it finds. No blockers; its findings are fixed, except three recorded below.
 - [ ] 13. Show Eric: his clicks (Google project, one key in Render, the
   worker), his own Gmail connected first, then Amy's two mailboxes.
 
@@ -52,3 +52,14 @@ technical words on a screen. Phone width, light and dark.
 - Real Gmail and real olypen reads (first with Eric's own test mailbox).
 - Whether Google's Testing status makes a tester reconnect after 7 days.
 - That the worker and the app hold the same `CONNECTION_KEY`.
+
+## Carried forward from the review
+
+- **Before Build 4** (first real AI call): make the spending check and the
+  spend one step, so calls in parallel cannot pass the limit; record a
+  call that cost money and then failed; decide the month boundary (UTC
+  today, though the message says "the 1st").
+- **Left as is:** a Google token discarded on a refused connection is not
+  revoked (revoking could cut a working connection for the same account).
+- **Low risk, optional:** a mail server name that resolves to a private
+  address passes the name check; port 993 and certificate matching limit it.
