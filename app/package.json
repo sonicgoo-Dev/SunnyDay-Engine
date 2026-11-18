@@ -6,7 +6,7 @@
   "description": "The SunnyDay screens and the server behind them (TanStack Start).",
   "scripts": {
     "dev": "vite dev --port 3300",
-    "build": "vite build",
+    "build": "vite build && node scripts/copy-migrations.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
