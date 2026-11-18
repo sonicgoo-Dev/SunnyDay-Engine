@@ -1,0 +1,13 @@
+{
+  "name": "@sunnyday/worker",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "The background worker: where the AI agents and scheduled jobs will run. Build 1 only proves it starts.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": { "@sunnyday/shared": "0.0.1" },
+  "devDependencies": { "@types/node": "22.20.5", "typescript": "5.9.3" }
+}

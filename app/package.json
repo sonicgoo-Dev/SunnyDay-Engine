@@ -1,0 +1,45 @@
+{
+  "name": "@sunnyday/app",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "The SunnyDay screens and the server behind them (TanStack Start).",
+  "scripts": {
+    "dev": "vite dev --port 3300",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "5.3.0",
+    "@fontsource-variable/manrope": "5.3.0",
+    "@sentry/node": "11.14.0",
+    "@sunnyday/shared": "0.0.1",
+    "@tabler/icons-react": "3.51.0",
+    "@tanstack/react-query": "5.107.1",
+    "@tanstack/react-router": "1.170.46",
+    "@tanstack/react-router-ssr-query": "1.167.3",
+    "@tanstack/react-start": "1.169.4",
+    "better-auth": "1.7.14",
+    "clsx": "2.1.1",
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwind-merge": "3.7.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.5",
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "nitro": "3.0.260903-beta",
+    "tailwindcss": "4.3.5",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "4.1.12"
+  }
+}

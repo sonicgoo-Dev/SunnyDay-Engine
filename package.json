@@ -1,0 +1,20 @@
+{
+  "name": "sunnyday-engine",
+  "private": true,
+  "version": "0.0.1",
+  "description": "SunnyDay CRM: AI agents and a CRM for solo real estate agents.",
+  "type": "module",
+  "engines": { "node": ">=22 <23" },
+  "workspaces": ["shared", "app", "worker"],
+  "scripts": {
+    "build": "npm run build --workspace shared && npm run build --workspace app && npm run build --workspace worker",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run generate --workspace shared",
+    "db:migrate": "npm run migrate --workspace shared",
+    "invite": "npm run invite --workspace shared --",
+    "dev": "npm run dev --workspace app",
+    "start": "node app/.output/server/index.mjs",
+    "start:worker": "node worker/dist/index.js"
+  }
+}
