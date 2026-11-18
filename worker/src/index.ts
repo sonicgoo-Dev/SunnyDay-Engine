@@ -11,7 +11,7 @@ const HOUSEKEEPING_EVERY_MS = 10 * 60_000
 
 async function main() {
   const settings = readWorkerSettings()
-  if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN })
+  if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN, dataCollection: { httpBodies: [], urlQueryParams: false, cookies: false, stackFrameVariables: false } })
   const { db, close } = openDb(settings.DATABASE_URL, 4)
   await assertWallHolds(db)
   const deps: WorkerDeps = { db, settings, fetch, log: (line) => console.log(line) }

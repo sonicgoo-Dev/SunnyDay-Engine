@@ -139,9 +139,12 @@ function Connected({ box, canChange, reconnect }: { box: Mailbox; canChange: boo
       <div className="flex flex-col gap-0.5">
         <p className="font-semibold break-all">{box.address}</p>
         {box.status === 'connected' ? (
-          <p className="text-sm text-muted-foreground">
-            Connected. <LastRead iso={box.lastReadAt} />
-          </p>
+          <>
+            <p className="text-sm text-muted-foreground">
+              Connected. <LastRead iso={box.lastReadAt} />
+            </p>
+            {box.lastProblem && <p className="text-sm text-warning-foreground">{box.lastProblem}</p>}
+          </>
         ) : (
           <p className="text-sm text-warning-foreground">Needs reconnecting. {box.lastProblem}</p>
         )}

@@ -1,7 +1,7 @@
 // The worker's to-do list. Jobs wait in core.job; the worker takes one at
 // a time, always from the workspace that has waited longest, so every
 // agent gets a fair turn however much one of them has queued.
-import { and, eq, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { Db, Query } from '../db/client.js'
 import { job, workspace } from '../db/schema/index.js'
 
@@ -75,5 +75,5 @@ export async function requeueStale(db: Query, olderThanMinutes = 10): Promise<nu
 
 /** Finished jobs are only a record; a week of them is plenty. */
 export async function tidyFinished(db: Query): Promise<void> {
-  await db.delete(job).where(and(eq(job.status, 'done'), lt(job.finishedAt, sql`now() - interval '7 days'`)))
+  await db.delete(job).where(and(inArray(job.status, ['done', 'failed']), lt(job.finishedAt, sql`now() - interval '7 days'`)))
 }

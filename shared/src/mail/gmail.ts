@@ -1,16 +1,16 @@
 // Reading a Gmail mailbox. Rule 4: a mailbox is read, never changed. Every
 // request in this file goes through gmailGet, which can only ask; there is
 // no code here that marks, moves, labels, drafts, sends or deletes. A test
-// (shared/test/gmail.test.ts) fails if that ever stops being true.
+// (shared/test/mail.test.ts) fails if that ever stops being true.
 import { z } from 'zod'
-import { GoogleError, ReconnectNeeded, type Fetch } from './google-token.js'
+import { GOOGLE_TIMEOUT_MS, GoogleError, ReconnectNeeded, type Fetch } from './google-token.js'
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
 async function gmailGet(doFetch: Fetch, accessToken: string, path: string, query: Record<string, string | string[]> = {}): Promise<unknown> {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(query)) for (const one of Array.isArray(v) ? v : [v]) q.append(k, one)
-  const res = await doFetch(`${API}${path}${q.size ? `?${q}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` } })
+  const res = await doFetch(`${API}${path}${q.size ? `?${q}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
   if (res.status === 401) throw new ReconnectNeeded()
   if (!res.ok) throw new GoogleError('reading the mailbox', res.status)
   return res.json()
@@ -25,11 +25,17 @@ export async function mailboxAddress(doFetch: Fetch, accessToken: string): Promi
 
 const page = z.object({ messages: z.array(z.object({ id: z.string() })).default([]), nextPageToken: z.string().optional() })
 
+/** A mailbox fuller than this is listed in pieces over several turns; nothing is skipped. */
+const LIST_CEILING = 20_000
+
 /**
- * The ids of messages newer than a moment, oldest first, at most `cap`.
- * Spam and the bin are left out by Gmail itself. Drafts are left out here.
+ * The ids of every message newer than a moment, oldest first. Spam and the
+ * bin are left out by Gmail itself; drafts and chats are left out here.
+ * Gmail lists newest first, so the whole list is paged through and then
+ * turned round: the caller reads the oldest first and can stop and resume
+ * without ever stepping over a message.
  */
-export async function messageIdsSince(doFetch: Fetch, accessToken: string, afterMs: number, cap = 2000): Promise<string[]> {
+export async function messageIdsSince(doFetch: Fetch, accessToken: string, afterMs: number): Promise<string[]> {
   const ids: string[] = []
   let pageToken: string | undefined
   do {
@@ -42,9 +48,9 @@ export async function messageIdsSince(doFetch: Fetch, accessToken: string, after
     )
     ids.push(...got.messages.map((m) => m.id))
     pageToken = got.nextPageToken
-  } while (pageToken && ids.length < cap)
-  // Gmail lists newest first; reading oldest first lets a long catch-up stop and resume cleanly.
-  return ids.slice(0, cap).reverse()
+  } while (pageToken)
+  // Oldest first. Past the ceiling, the newest wait for a later turn.
+  return ids.reverse().slice(0, LIST_CEILING)
 }
 
 const message = z.object({

@@ -28,10 +28,12 @@ type Call = { method: string; url: string }
 /** A pretend Google. `inbox` is what the mailbox holds; `revoked` makes the lasting token stop working. */
 function pretendGoogle(inbox: Array<{ id: string; ms: number; from: string; subject: string; sent?: boolean }>, opts: { revoked?: boolean } = {}) {
   const calls: Call[] = []
+  const signals: boolean[] = []
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   const doFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input))
     calls.push({ method: init?.method ?? 'GET', url: url.toString() })
+    signals.push(init?.signal instanceof AbortSignal)
     if (url.host === 'oauth2.googleapis.com' && url.pathname === '/token') return opts.revoked ? json({ error: 'invalid_grant' }, 400) : json({ access_token: 'short-pass' })
     if (url.host === 'oauth2.googleapis.com' && url.pathname === '/revoke') return json({})
     if (url.pathname.endsWith('/messages')) {
@@ -50,7 +52,7 @@ function pretendGoogle(inbox: Array<{ id: string; ms: number; from: string; subj
       payload: { headers: [{ name: 'From', value: m.from }, { name: 'To', value: 'amy@example.com' }, { name: 'Subject', value: m.subject }] },
     })
   }) as Fetch
-  return { doFetch, calls }
+  return { doFetch, calls, signals }
 }
 
 const NOW = Date.UTC(2026, 10, 17, 12)
@@ -126,6 +128,8 @@ describe('a Gmail connection', () => {
     const g = pretendGoogle([...inbox, { id: 'm3', ms: NOW + 60_000, from: 'new@example.com', subject: 'New inquiry' }])
     const result = await readMailbox({ db, connectionKey: KEY, google, fetch: g.doFetch, now: () => new Date(NOW + 120_000) }, a, boxId)
     expect(result).toEqual({ outcome: 'read', added: 1, more: false })
+    // Every request to Google carries a time limit, so none can hang.
+    expect(g.signals.every(Boolean)).toBe(true)
     expect(g.calls.filter((c) => /\/messages\/m[12]$/.test(new URL(c.url).pathname))).toEqual([])
   })
 
@@ -141,6 +145,29 @@ describe('a Gmail connection', () => {
     await expect(saveGmailConnection(db, KEY, a, { address: 'other@example.com', refreshToken: 'x' })).rejects.toBeInstanceOf(SecondMainMailbox)
     // Connecting the same address again is fine; it replaces the stored way in.
     expect(await saveGmailConnection(db, KEY, a, { address: 'amy@example.com', refreshToken: 'NEWER' })).toBe(boxId)
+  })
+
+  it('a very busy mailbox is caught up over several turns, oldest first, with nothing skipped', async () => {
+    const busy = Array.from({ length: 400 }, (_, i) => ({ id: `b${i}`, ms: hoursAgo(20) + i * 1000, from: 'list@example.com', subject: `Busy ${i}` }))
+    await inWorkspace(db, a, (tx) => tx.update(mailbox).set({ cursor: { afterMs: hoursAgo(21) } }).where(eq(mailbox.id, boxId)))
+    const g = pretendGoogle([...inbox, ...busy])
+    const deps = { db, connectionKey: KEY, google, fetch: g.doFetch, now: () => new Date(NOW + 300_000) }
+    const turns = []
+    for (let i = 0; i < 4; i++) turns.push(await readMailbox(deps, a, boxId))
+    expect(turns.map((t) => (t.outcome === 'read' ? [t.added, t.more] : t.outcome))).toEqual([[150, true], [150, true], [100, false], [0, false]])
+    const kept = await inWorkspace(db, a, (tx) => tx.select({ id: mailMessage.providerId }).from(mailMessage))
+    for (const m of busy) expect(kept.some((k) => k.id === m.id), m.id).toBe(true)
+  })
+
+  it('connecting Gmail at an address that was the second mailbox turns it into the main one', async () => {
+    const reader: ImapReader = async () => ({ uidValidity: '1', lastUid: 9, messages: [], more: false })
+    const id = await saveImapConnection({ db, connectionKey: KEY, imap: reader }, b, 'both@example.com', { host: 'imap.example.com', port: 993, user: 'both@example.com', pass: 'p' })
+    await readMailbox({ db, connectionKey: KEY, google, fetch: pretendGoogle([]).doFetch, imap: reader }, b, id)
+    expect(await saveGmailConnection(db, KEY, b, { address: 'both@example.com', refreshToken: 'x' })).toBe(id)
+    const [row] = await inWorkspace(db, b, (tx) => tx.select().from(mailbox))
+    expect(row).toMatchObject({ kind: 'gmail', role: 'main', cursor: {} })
+    expect(await readMailbox({ db, connectionKey: KEY, google, fetch: pretendGoogle(inbox).doFetch, now: () => new Date(NOW) }, b, id)).toMatchObject({ outcome: 'read', added: 2 })
+    await disconnectMailbox({ db, connectionKey: KEY, fetch: pretendGoogle([]).doFetch }, b, id)
   })
 
   it('when Google withdraws the permission, the mailbox says "reconnect" and is not read again', async () => {

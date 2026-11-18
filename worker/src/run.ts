@@ -8,6 +8,7 @@ import {
   ensureReadsQueued,
   fail,
   finish,
+  noteMailboxProblem,
   readJob,
   readMailbox,
   requeueStale,
@@ -47,6 +48,25 @@ async function doJob(deps: WorkerDeps, j: Job): Promise<void> {
   if (result.outcome === 'read') await enqueue(deps.db, readJob(j.workspaceId, mailboxId, minutesFromNow(result.more ? 0 : READ_EVERY_MINUTES)))
 }
 
+/** One job may take this long at most; past it, the job counts as failed and the next workspace gets its turn. */
+const JOB_DEADLINE_MS = 4 * 60_000
+
+class TookTooLong extends Error {
+  constructor() {
+    super('the job took too long')
+    this.name = 'TookTooLong'
+  }
+}
+
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([work, new Promise<never>((_, no) => (timer = setTimeout(() => no(new TookTooLong()), ms)))])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** A short reason safe to keep and to log: the kind of error, never a customer's words. */
 const reasonOf = (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : 'unknown error')
 
@@ -59,14 +79,19 @@ export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<
     const j = await claimNext(deps.db)
     if (!j) break
     try {
-      await doJob(deps, j)
+      await withDeadline(doJob(deps, j), JOB_DEADLINE_MS)
       done++
     } catch (err) {
       failed++
       const outcome = await fail(deps.db, j, reasonOf(err))
       deps.log?.(`[worker] job ${j.id} (${j.kind}) did not finish, ${outcome === 'retry' ? 'will be tried again' : 'given up after five tries'}: ${reasonOf(err)}`)
       // A job given up on must not stop a mailbox being read for good.
-      if (outcome === 'gave_up' && j.kind === READ_MAILBOX) await enqueue(deps.db, readJob(j.workspaceId, String(j.payload.mailboxId ?? ''), minutesFromNow(60)))
+      if (outcome === 'gave_up' && j.kind === READ_MAILBOX) {
+        const mailboxId = String(j.payload.mailboxId ?? '')
+        // Settings must not go on saying all is well.
+        await noteMailboxProblem(deps.db, j.workspaceId, mailboxId, 'SunnyDay has not been able to read this mailbox lately. It keeps trying every hour.').catch(() => {})
+        await enqueue(deps.db, readJob(j.workspaceId, mailboxId, minutesFromNow(60)))
+      }
     }
   }
   return { done, failed }

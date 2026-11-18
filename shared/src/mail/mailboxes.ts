@@ -1,7 +1,7 @@
 // Connected mailboxes: saving a connection, reading one, and disconnecting.
 // Everything here runs inside inWorkspace, so one workspace can never read
 // or use another's mailbox.
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { seal, unseal } from '../crypto/seal.js'
 import type { Db } from '../db/client.js'
 import { mailMessage, mailbox, type MailboxKind, type MailboxRole, type MailboxStatus } from '../db/schema/index.js'
@@ -65,7 +65,11 @@ export async function saveGmailConnection(db: Db, connectionKey: string, workspa
     const [saved] = await tx
       .insert(mailbox)
       .values({ workspaceId, kind: 'gmail', role: 'main', address: c.address, sealed })
-      .onConflictDoUpdate({ target: [mailbox.workspaceId, mailbox.address], set: { sealed, status: 'connected', lastProblem: null } })
+      // If this address was the read-only second mailbox, it becomes the main one, read afresh.
+      .onConflictDoUpdate({
+        target: [mailbox.workspaceId, mailbox.address],
+        set: { sealed, kind: 'gmail', role: 'main', status: 'connected', lastProblem: null, cursor: sql`case when ${mailbox.kind} = 'gmail' then ${mailbox.cursor} else '{}'::jsonb end` },
+      })
       .returning({ id: mailbox.id })
     await enqueue(tx, readJob(workspaceId, saved!.id))
     return saved!.id
@@ -86,7 +90,7 @@ export async function saveImapConnection(deps: { db: Db; connectionKey: string; 
     const [saved] = await tx
       .insert(mailbox)
       .values({ workspaceId, kind: 'imap', role: 'read_only', address: address.trim().toLowerCase(), sealed })
-      .onConflictDoUpdate({ target: [mailbox.workspaceId, mailbox.address], set: { sealed, kind: 'imap', role: 'read_only', status: 'connected', lastProblem: null } })
+      .onConflictDoUpdate({ target: [mailbox.workspaceId, mailbox.address], set: { sealed, kind: 'imap', role: 'read_only', status: 'connected', lastProblem: null, cursor: {} } })
       .returning({ id: mailbox.id })
     await enqueue(tx, readJob(workspaceId, saved!.id))
     return saved!.id
@@ -112,11 +116,14 @@ export async function readMailbox(deps: { db: Db; connectionKey: string; google:
     const afterMs = box.cursor.afterMs ?? now().getTime() - FIRST_READ_DAYS * 86_400_000
     // A minute of overlap, so nothing that arrived mid-read is missed; duplicates are ignored on insert.
     const ids = await messageIdsSince(deps.fetch, accessToken, afterMs - 60_000)
-    const known = new Set(
-      (await inWorkspace(db, workspaceId, (tx) => tx.select({ providerId: mailMessage.providerId }).from(mailMessage).where(eq(mailMessage.mailboxId, mailboxId)))).map(
-        (r) => r.providerId,
-      ),
-    )
+    const known = new Set<string>()
+    for (let i = 0; i < ids.length; i += 1000) {
+      const some = ids.slice(i, i + 1000)
+      const rows = await inWorkspace(db, workspaceId, (tx) =>
+        tx.select({ providerId: mailMessage.providerId }).from(mailMessage).where(and(eq(mailMessage.mailboxId, mailboxId), inArray(mailMessage.providerId, some))),
+      )
+      for (const r of rows) known.add(r.providerId)
+    }
     const fresh = ids.filter((id) => !known.has(id))
     const batch = fresh.slice(0, PER_TURN)
     const summaries: MessageSummary[] = []
@@ -195,4 +202,9 @@ export async function ensureReadsQueued(db: Db, workspaceId: string): Promise<nu
     for (const b of boxes) await enqueue(tx, readJob(workspaceId, b.id))
     return boxes.length
   })
+}
+
+/** Settings shows this beside a mailbox the worker keeps failing to read. Cleared by the next good read. */
+export async function noteMailboxProblem(db: Db, workspaceId: string, mailboxId: string, problem: string): Promise<void> {
+  await inWorkspace(db, workspaceId, (tx) => tx.update(mailbox).set({ lastProblem: problem }).where(eq(mailbox.id, mailboxId)))
 }

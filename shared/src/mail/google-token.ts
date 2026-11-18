@@ -18,6 +18,9 @@ export const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.compose',
 ] as const
 
+/** No request to Google may hang: one stuck call would hold up every workspace's turn. */
+export const GOOGLE_TIMEOUT_MS = 15_000
+
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
@@ -56,7 +59,7 @@ const exchanged = z.object({ access_token: z.string().min(1), refresh_token: z.s
 const refreshed = z.object({ access_token: z.string().min(1) })
 
 async function post(doFetch: Fetch, url: string, form: Record<string, string>): Promise<Response> {
-  return doFetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form) })
+  return doFetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form), signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
 }
 
 /** Swaps the code Google sent back for tokens. Fails if Google gave no lasting token or not every permission. */

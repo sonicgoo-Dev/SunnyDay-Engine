@@ -26,7 +26,9 @@ export async function boot(): Promise<() => Promise<void>> {
   let step = 'reading the settings'
   try {
     const { settings, open } = getServer()
-    if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN }) // personal request details (cookies, addresses) are off by default; keep them off
+    // Error reports never carry what a person typed (a mailbox password), an address's
+    // query (Google's one-time code) or cookies.
+    if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN, dataCollection: { httpBodies: [], urlQueryParams: false, cookies: false, stackFrameVariables: false } })
     // Rule 1: never run as a database user the wall does not apply to.
     step = 'checking the wall between workspaces'
     await assertWallHolds(open.db)

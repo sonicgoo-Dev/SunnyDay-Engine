@@ -51,13 +51,18 @@ export const readImapInbox: ImapReader = async (wayIn, cursor, opts) => {
     auth: { user: wayIn.user, pass: wayIn.pass },
     logger: false,
     socketTimeout: 60_000,
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
   })
   // A dropped connection must never take the whole worker down.
   client.on('error', () => {})
   try {
     await client.connect()
   } catch (err) {
-    if ((err as { authenticationFailed?: boolean }).authenticationFailed) throw new ImapSignInRefused()
+    const e = err as { authenticationFailed?: boolean; serverResponseCode?: string }
+    // "Try later" answers (too many connections, server busy) are not a wrong password.
+    const tryLater = ['UNAVAILABLE', 'LIMIT', 'INUSE', 'SERVERBUG', 'CONTACTADMIN', 'OVERQUOTA'].includes((e.serverResponseCode ?? '').toUpperCase())
+    if (e.authenticationFailed && !tryLater) throw new ImapSignInRefused()
     throw new ImapUnreachable()
   }
   try {
