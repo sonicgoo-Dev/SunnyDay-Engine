@@ -34,8 +34,8 @@ marks on a screen; phone width, light and dark; semantic color tokens only.
 - [x] 9. **Worker** starts, checks the wall, idles, stops cleanly.
 - [x] 10. **Rulebook, readme, `render.yaml`, help pages.**
 - [x] 11. **Self-check and fresh reviewer**; fix what they find. Reviewer found no blockers; its ten findings are fixed (pool survives a database restart, a removed invitation stays removed, errors reach Sentry, visitors wait for startup, safer startup messages, wider tests).
-- [ ] 12. **Show Eric.** Cost approval, his four click jobs, deploy on his
-  go-ahead, his sign-in on a phone.
+- [x] 12. **Show Eric.** Cost approved (about $13 a month), his click jobs done,
+  deployed, and he signed in on his phone: "done and working" (Nov 17, 2026).
 
 ## Review focus
 
@@ -47,8 +47,8 @@ marks on a screen; phone width, light and dark; semantic color tokens only.
 
 ## To verify at deploy, not provable here
 
-- Render's database user is neither superuser nor BYPASSRLS (else startup
-  refuses, by design; fix is a second, ordinary user).
-- Google sign-in end to end with the real client.
+- Render's database user is neither superuser nor BYPASSRLS: confirmed,
+  the app passed its wall check at startup on Render (Nov 17, 2026).
+- Google sign-in end to end with the real client: confirmed by Eric.
 - Google "Testing" status: whether a tester's sign-in lapses after 7 days
   (sign-in scopes only; expected not to, but watch it before Build 2).

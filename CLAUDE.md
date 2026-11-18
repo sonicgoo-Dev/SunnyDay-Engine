@@ -98,6 +98,18 @@ badges or unread counts. Every screen works at phone width, light and dark.
 Semantic color tokens only. A client's nickname is internal: it never
 appears in anything a client could see.
 
+## Hosting (Render)
+
+Its own Render workspace, "SunnyDay" (never the one holding Oomph Engine
+and PlainSend): web service `sunnyday-app` and database `sunnyday-db`
+(Postgres 16), Oregon. Answers at `app.sunnydaycrm.com` (DNS at
+Cloudflare, a DNS-only CNAME to `sunnyday-app.onrender.com`). Health check
+`/healthz`. Live since Nov 17, 2026.
+
+Known and harmless: at startup the sign-in library may warn that its
+secret "appears low-entropy". `SIGNIN_SECRET` is Render's generated value;
+the library's guess counts distinct characters and misjudges it. Leave it.
+
 ## Commands (run in the repo's top folder)
 
 ```
