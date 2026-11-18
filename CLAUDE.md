@@ -69,7 +69,7 @@ Sentry. Hosted on Render. `.npmrc` sets `legacy-peer-deps=true`; keep it.
 ```
 shared/   settings check, database schema and table changes, the wall, the invited list
 app/      the screens and sign-in (TanStack Start)
-worker/   background jobs (idle until Build 2)
+worker/   the background worker: works through the job list, a fair turn per workspace
 agents/   one folder per AI agent (later builds)
 voice/    how each agent sounds (later builds; never committed with client text)
 docs/     briefs/, plans/, help/ (the pages the in-app Guide reads)
@@ -88,6 +88,38 @@ Anything that must run at startup goes in a Nitro plugin (`app/server/`).
 State the server keeps (database pool, ready flag) hangs off one
 `globalThis` symbol, because the bundle can hold two copies of a module.
 
+## Mail connections and the engine room (Build 2)
+
+- **Mailboxes** (`ws.mailbox`): one `main` Gmail mailbox per workspace
+  (the only one mail will ever go out from) and any `read_only` second
+  mailbox, read by signing in to its mail server (IMAP, port 993 only).
+  The way in is stored sealed (`shared/src/crypto/seal.ts`) with
+  `CONNECTION_KEY`, tied to its workspace. The app and the worker hold the
+  same key; never change it once mailboxes are connected.
+- **Reading only.** `shared/src/mail/gmail.ts` can only ask (one function,
+  GET). `imap.ts` opens the inbox in the server's read-only mode and asks
+  for envelopes only. Tests read both files and fail on any call that
+  marks, moves, drafts, sends or deletes. Drafting and sending arrive in
+  Build 8, in their own file, behind Approvals.
+- **What is kept** (`ws.mail_message`): who, when, subject and a short
+  excerpt. Never the whole message. A first read looks back 14 days.
+- **Google permissions**: read, plus draft and send, asked for once
+  (Eric, Nov 17, 2026). The same Google client as sign-in, with a second
+  return address: `/api/mail/google/callback`.
+- **The job list** (`core.job`) sits outside the wall so the worker can be
+  fair across workspaces; so a job holds a kind and ids only, never a
+  customer's words. `claimNext` always serves the workspace that has
+  waited longest. A mailbox is read every 5 minutes; a failed job is
+  retried with a growing wait, and a read is never lost for good.
+- **AI spending** (rule 8): every AI call goes through `withAiBudget`
+  (`shared/src/ai/spend.ts`). Default limit $20 a month, set in Settings,
+  $0 to $200. No AI agent exists yet; the first arrives in Build 4.
+- **Only the agent** (never a helper) connects or disconnects a mailbox
+  or changes the limit. Checked on the server.
+- Addresses the browser travels to itself (`/api/mail/google/start` and
+  `/callback`) check the session first; `app/test/guard.test.ts` lists
+  them and holds them to it.
+
 ## Screens
 
 Nine, in this order: Today, Approvals, Contacts, Deals, Notes, Money,
@@ -101,8 +133,8 @@ appears in anything a client could see.
 ## Hosting (Render)
 
 Its own Render workspace, "SunnyDay" (never the one holding Oomph Engine
-and PlainSend): web service `sunnyday-app` and database `sunnyday-db`
-(Postgres 16), Oregon. Answers at `app.sunnydaycrm.com` (DNS at
+and PlainSend): web service `sunnyday-app` database `sunnyday-db`
+(Postgres 16) and, from Build 2, background worker `sunnyday-worker`, Oregon. Answers at `app.sunnydaycrm.com` (DNS at
 Cloudflare, a DNS-only CNAME to `sunnyday-app.onrender.com`). Health check
 `/healthz`. Live since Nov 17, 2026.
 

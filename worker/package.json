@@ -3,11 +3,19 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "The background worker: where the AI agents and scheduled jobs will run. Build 1 only proves it starts.",
+  "description": "The background worker: works through the job list, a fair turn per workspace. Build 2: reading connected mailboxes.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
-  "dependencies": { "@sunnyday/shared": "0.0.1" },
-  "devDependencies": { "@types/node": "22.20.5", "typescript": "5.9.3" }
+  "dependencies": {
+    "@sunnyday/shared": "0.0.1",
+    "@sentry/node": "11.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
 }

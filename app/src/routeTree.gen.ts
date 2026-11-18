@@ -24,6 +24,8 @@ import { Route as InFrameNotesRouteImport } from './routes/_in/_frame/notes'
 import { Route as InFrameSettingsRouteImport } from './routes/_in/_frame/settings'
 import { Route as InFrameWebsiteRouteImport } from './routes/_in/_frame/website'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiMailGoogleCallbackRouteImport } from './routes/api/mail/google/callback'
+import { Route as ApiMailGoogleStartRouteImport } from './routes/api/mail/google/start'
 
 const InRoute = InRouteImport.update({
   id: '/_in',
@@ -98,6 +100,16 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMailGoogleCallbackRoute = ApiMailGoogleCallbackRouteImport.update({
+  id: '/api/mail/google/callback',
+  path: '/api/mail/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMailGoogleStartRoute = ApiMailGoogleStartRouteImport.update({
+  id: '/api/mail/google/start',
+  path: '/api/mail/google/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof InFrameIndexRoute
@@ -113,6 +125,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof InFrameSettingsRoute
   '/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
+  '/api/mail/google/start': typeof ApiMailGoogleStartRoute
 }
 export interface FileRoutesByTo {
   '/': typeof InFrameIndexRoute
@@ -128,6 +142,8 @@ export interface FileRoutesByTo {
   '/settings': typeof InFrameSettingsRoute
   '/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
+  '/api/mail/google/start': typeof ApiMailGoogleStartRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -146,6 +162,8 @@ export interface FileRoutesById {
   '/_in/_frame/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_in/_frame/': typeof InFrameIndexRoute
+  '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
+  '/api/mail/google/start': typeof ApiMailGoogleStartRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -163,6 +181,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/website'
     | '/api/auth/$'
+    | '/api/mail/google/callback'
+    | '/api/mail/google/start'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -178,6 +198,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/website'
     | '/api/auth/$'
+    | '/api/mail/google/callback'
+    | '/api/mail/google/start'
   id:
     | '__root__'
     | '/_in'
@@ -195,6 +217,8 @@ export interface FileRouteTypes {
     | '/_in/_frame/website'
     | '/api/auth/$'
     | '/_in/_frame/'
+    | '/api/mail/google/callback'
+    | '/api/mail/google/start'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -203,6 +227,8 @@ export interface RootRouteChildren {
   NotInvitedRoute: typeof NotInvitedRoute
   SignInRoute: typeof SignInRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiMailGoogleCallbackRoute: typeof ApiMailGoogleCallbackRoute
+  ApiMailGoogleStartRoute: typeof ApiMailGoogleStartRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -312,6 +338,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mail/google/callback': {
+      id: '/api/mail/google/callback'
+      path: '/api/mail/google/callback'
+      fullPath: '/api/mail/google/callback'
+      preLoaderRoute: typeof ApiMailGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mail/google/start': {
+      id: '/api/mail/google/start'
+      path: '/api/mail/google/start'
+      fullPath: '/api/mail/google/start'
+      preLoaderRoute: typeof ApiMailGoogleStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -358,6 +398,8 @@ const rootRouteChildren: RootRouteChildren = {
   NotInvitedRoute: NotInvitedRoute,
   SignInRoute: SignInRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiMailGoogleCallbackRoute: ApiMailGoogleCallbackRoute,
+  ApiMailGoogleStartRoute: ApiMailGoogleStartRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

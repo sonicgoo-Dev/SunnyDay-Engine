@@ -14,6 +14,9 @@ const schema = z.object({
   SIGNIN_GOOGLE_CLIENT_SECRET: z.string().min(1),
   FIRST_INVITES: z.string().default(''),
   SENTRY_DSN: z.string().default(''),
+  // Seals each mailbox connection. Empty = mail connections are not switched
+  // on yet; the app still starts and Settings says so.
+  CONNECTION_KEY: z.string().default('').refine((v) => v === '' || v.length >= 32, 'must be at least 32 characters'),
 })
 
 export type Settings = z.infer<typeof schema>
@@ -42,4 +45,18 @@ export function readDatabaseUrl(source: Record<string, string | undefined> = pro
   const v = source.DATABASE_URL
   if (!v || !/^postgres(ql)?:\/\//.test(v)) throw new SettingsError(['DATABASE_URL is not set'])
   return v
+}
+
+const workerSchema = schema.pick({ DATABASE_URL: true, SENTRY_DSN: true, CONNECTION_KEY: true }).extend({
+  // The worker renews Gmail connections, so it needs the same Google client as the app.
+  SIGNIN_GOOGLE_CLIENT_ID: z.string().default(''),
+  SIGNIN_GOOGLE_CLIENT_SECRET: z.string().default(''),
+})
+export type WorkerSettings = z.infer<typeof workerSchema>
+
+/** The worker's settings. Only the database is required; without the rest it starts and does no mail work. */
+export function readWorkerSettings(source: Record<string, string | undefined> = process.env): WorkerSettings {
+  const parsed = workerSchema.safeParse(source)
+  if (parsed.success) return parsed.data
+  throw new SettingsError([...new Set(parsed.error.issues.map((i) => `${i.path.join('.') || 'settings'} ${i.message}`))])
 }

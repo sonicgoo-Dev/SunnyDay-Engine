@@ -1,6 +1,10 @@
 # Build 2: Mail connections and the engine room
 
-Status: waiting for Eric's approval. Written Nov 17, 2026.
+Status: approved by Eric on Nov 17, 2026 ("1 yes 2 yes 3 yes 4 yes").
+
+Olypen, settled the same night: it cannot forward yet, but it allows an
+app to sign in and read (IMAP, `imap.olypen.com`, port 993). So the second
+mailbox is connected by signing in to it directly, read only.
 
 ## What you will be able to do
 

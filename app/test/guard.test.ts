@@ -22,6 +22,9 @@ const code = (file: string) => readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\
 // The only addresses that answer without a session: the host's health
 // check, and sign-in itself. Adding one here is a decision, not a chore.
 const OPEN_ADDRESSES = ['routes/healthz.ts', 'routes/api/auth/$.ts']
+// Addresses the browser itself must travel to (the trip to Google and
+// back). Each checks the session in the function it hands the request to.
+const SELF_CHECKING = { 'routes/api/mail/google/start.ts': 'mail/connect.server.ts', 'routes/api/mail/google/callback.ts': 'mail/connect.server.ts' }
 
 describe('server functions', () => {
   const all = filesUnder(SRC)
@@ -47,8 +50,20 @@ describe('server functions', () => {
   })
 
   it('only the health check and sign-in answer without a session', () => {
-    const open = all.filter((f) => /\bhandlers\s*:/.test(code(f))).map((f) => f.slice(SRC.length + 1).split('\\').join('/'))
-    expect(open.sort()).toEqual([...OPEN_ADDRESSES].sort())
+    const own = all.filter((f) => /\bhandlers\s*:/.test(code(f))).map((f) => f.slice(SRC.length + 1).split('\\').join('/'))
+    expect(own.sort()).toEqual([...OPEN_ADDRESSES, ...Object.keys(SELF_CHECKING)].sort())
+  })
+
+  it('the addresses that check the session themselves really do, before anything else', () => {
+    for (const checker of new Set(Object.values(SELF_CHECKING))) {
+      const text = code(join(SRC, checker))
+      for (const fn of text.split(/export async function /).slice(1)) {
+        const name = fn.slice(0, fn.indexOf('('))
+        const body = fn.slice(fn.indexOf('{'))
+        const firstStatement = body.split('\n').map((l) => l.trim()).filter(Boolean)[1] ?? ''
+        if (/Request\b/.test(fn.slice(0, fn.indexOf('{')))) expect(firstStatement, `${checker}: ${name}`).toMatch(/const me = await signedIn\(request\.headers\)/)
+      }
+    }
   })
 
   it('no page or component opens the database itself', () => {

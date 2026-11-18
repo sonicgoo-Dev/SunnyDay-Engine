@@ -20,6 +20,7 @@ const settings: Settings = {
   SIGNIN_GOOGLE_CLIENT_SECRET: 'secret',
   FIRST_INVITES: '',
   SENTRY_DSN: '',
+  CONNECTION_KEY: '',
 }
 const auth = createSignIn(db, settings)
 const adapter = async () => (await auth.$context).internalAdapter

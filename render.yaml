@@ -38,6 +38,29 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: CONNECTION_KEY
+        sync: false
 
-# The worker (worker/) joins here in Build 2, when it has jobs to run.
-# Until then it would cost money to sit idle.
+  # Works through the job list (Build 2: reading connected mailboxes).
+  # Exactly one instance. It holds the same CONNECTION_KEY as the app.
+  - type: worker
+    name: sunnyday-worker
+    runtime: node
+    region: oregon
+    plan: starter
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:worker
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase: { name: sunnyday-db, property: connectionString }
+      - key: CONNECTION_KEY
+        sync: false
+      - key: SIGNIN_GOOGLE_CLIENT_ID
+        sync: false
+      - key: SIGNIN_GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
