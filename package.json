@@ -13,6 +13,7 @@
     "db:generate": "npm run generate --workspace shared",
     "db:migrate": "npm run migrate --workspace shared",
     "invite": "npm run invite --workspace shared --",
+    "uninvite": "npm run uninvite --workspace shared --",
     "dev": "npm run dev --workspace app",
     "start": "node app/.output/server/index.mjs",
     "start:worker": "node worker/dist/index.js"

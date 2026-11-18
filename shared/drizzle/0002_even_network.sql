@@ -1,0 +1,1 @@
+ALTER TABLE "core"."invite" ADD COLUMN "removed_at" timestamp with time zone;

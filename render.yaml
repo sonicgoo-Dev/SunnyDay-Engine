@@ -15,7 +15,8 @@ services:
     region: oregon
     plan: starter
     branch: main
-    buildCommand: npm ci && npm run build
+    # --include=dev: the build tools are needed even if the host sets NODE_ENV=production.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /healthz
     domains:

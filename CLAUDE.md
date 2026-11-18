@@ -107,6 +107,7 @@ npm test             # needs a local Postgres; see README
 npm run typecheck
 npm run db:generate  # after changing shared/src/db/schema
 npm run invite -- someone@example.com
+npm run uninvite -- someone@example.com   # takes it away and signs them out
 ```
 
 ## The build routine

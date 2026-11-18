@@ -3,7 +3,7 @@
 // forgets to filter.
 import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { assertWallHolds } from '../src/db/client.js'
+import { WallError, assertWallHolds, type Query } from '../src/db/client.js'
 import { setting, workspace } from '../src/db/schema/index.js'
 import { inWorkspace } from '../src/db/workspace.js'
 import { openTestDb } from './db.js'
@@ -36,6 +36,13 @@ afterAll(close)
 describe('the wall between workspaces', () => {
   it('the test database user is an ordinary one, as the hosted one must be', async () => {
     await expect(assertWallHolds(db)).resolves.toBeUndefined()
+  })
+
+  it('refuses a database user that could see through the wall, or one it cannot identify', async () => {
+    const answering = (rows: unknown[]) => ({ execute: async () => ({ rows }) }) as unknown as Query
+    await expect(assertWallHolds(answering([{ through: true }]))).rejects.toBeInstanceOf(WallError)
+    await expect(assertWallHolds(answering([{ through: null }]))).rejects.toBeInstanceOf(WallError)
+    await expect(assertWallHolds(answering([]))).rejects.toBeInstanceOf(WallError)
   })
 
   it('a query with NO filter sees only its own workspace', async () => {
@@ -82,16 +89,18 @@ describe('the wall between workspaces', () => {
 
   it('EVERY table in the ws schema is behind the wall', async () => {
     // Fails the day someone adds a customer table and forgets the wall.
-    const r = await db.execute<{ name: string; walled: boolean; forced: boolean; has_col: boolean; policies: number }>(sql`
+    const r = await db.execute<{ name: string; walled: boolean; forced: boolean; has_col: boolean; policies: number; others: number }>(sql`
       select c.relname as name, c.relrowsecurity as walled, c.relforcerowsecurity as forced,
              exists (select 1 from information_schema.columns k
                      where k.table_schema = 'ws' and k.table_name = c.relname and k.column_name = 'workspace_id' and k.is_nullable = 'NO') as has_col,
-             (select count(*)::int from pg_policies p where p.schemaname = 'ws' and p.tablename = c.relname and p.policyname = 'workspace_wall') as policies
+             (select count(*)::int from pg_policies p where p.schemaname = 'ws' and p.tablename = c.relname and p.policyname = 'workspace_wall' and p.cmd = 'ALL') as policies,
+             -- Any second policy would be OR-ed with the wall and could let rows through.
+             (select count(*)::int from pg_policies p where p.schemaname = 'ws' and p.tablename = c.relname and p.policyname <> 'workspace_wall') as others
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'ws' and c.relkind = 'r'`)
+      where n.nspname = 'ws' and c.relkind in ('r', 'p')`)
     expect(r.rows.length).toBeGreaterThan(0)
     for (const t of r.rows) {
-      expect(t, `ws.${t.name}`).toMatchObject({ walled: true, forced: true, has_col: true, policies: 1 })
+      expect(t, `ws.${t.name}`).toMatchObject({ walled: true, forced: true, has_col: true, policies: 1, others: 0 })
     }
   })
 })

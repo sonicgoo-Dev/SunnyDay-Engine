@@ -17,7 +17,7 @@ import {
 import { APIError, betterAuth } from 'better-auth'
 import { eq } from 'drizzle-orm'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { getDb, getSettings } from '@/server/db.server'
+import { getDb, getSettings, whenReady } from '@/server/db.server'
 import { NOT_INVITED, maySignIn } from './may-sign-in'
 
 const DAY = 60 * 60 * 24
@@ -91,9 +91,16 @@ export type Me = { userId: string; name: string; email: string; workspaceId: str
 
 /** The person these request headers belong to, if their session is live and they are still invited. */
 export async function signedIn(headers: Headers): Promise<Me | null> {
-  const found = await getSignIn().api.getSession({ headers })
+  await whenReady()
+  return whoIs(getSignIn(), getDb(), headers)
+}
+
+/** signedIn's work, with the sign-in and database handed in so a test can call it. */
+export async function whoIs(auth: SignIn, db: Db, headers: Headers): Promise<Me | null> {
+  const found = await auth.api.getSession({ headers })
   if (!found) return null
-  const db = getDb()
+  // Checked on every page, not only at sign-in: taking an invitation away
+  // locks that person out at once, whatever their session says.
   if (!maySignIn(found.user, await isInvited(db, found.user.email))) return null
   // Almost always one quick read; a first sign-in also makes the workspace.
   const member = (await membershipsOf(db, found.user.id))[0] ?? (await ensureWorkspace(db, { id: found.user.id, name: found.user.name }))

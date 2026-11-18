@@ -18,7 +18,7 @@ export default defineConfig({
     // Nitro plugin, because the server entry loads lazily on first request.
     nitro({
       preset: 'node-server',
-      plugins: ['./server/boot.ts', './server/never-keep-errors.ts'],
+      plugins: ['./server/boot.ts', './server/never-keep-errors.ts', './server/report-errors.ts'],
     }),
     // React's Vite plugin must come after Start's plugin.
     viteReact(),

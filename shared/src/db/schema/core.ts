@@ -34,4 +34,7 @@ export const invite = coreSchema.table('invite', {
   email: text('email').primaryKey(),
   note: text('note'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // Set when an invitation is taken away. The row stays, so FIRST_INVITES
+  // at the next start cannot quietly let that person back in.
+  removedAt: timestamp('removed_at', { withTimezone: true }),
 })

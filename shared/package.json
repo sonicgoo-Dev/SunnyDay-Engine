@@ -13,7 +13,8 @@
     "test": "vitest run",
     "generate": "drizzle-kit generate",
     "migrate": "node dist/scripts/migrate.js",
-    "invite": "node dist/scripts/invite.js"
+    "invite": "node dist/scripts/invite.js",
+    "uninvite": "node dist/scripts/uninvite.js"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",

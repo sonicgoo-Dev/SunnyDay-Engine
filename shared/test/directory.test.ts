@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
-import { addInvite, ensureWorkspace, isInvited, membershipsOf, normalizeEmail, seedFirstInvites } from '../src/db/directory.js'
-import { authUser, membership } from '../src/db/schema/index.js'
+import { addInvite, ensureWorkspace, isInvited, membershipsOf, normalizeEmail, removeInvite, seedFirstInvites } from '../src/db/directory.js'
+import { authSession, authUser, membership } from '../src/db/schema/index.js'
 import { openTestDb } from './db.js'
 
 const { db, close } = openTestDb()
@@ -39,6 +39,22 @@ describe('the invited list', () => {
     expect(await isInvited(db, 'one@example.com')).toBe(true)
     expect(await isInvited(db, 'two@example.com')).toBe(true)
     expect(await seedFirstInvites(db, '')).toEqual([])
+  })
+
+  it('an invitation taken away stays away through the next start, and signs the person out', async () => {
+    await seedFirstInvites(db, 'gone@example.com')
+    await db.insert(authUser).values({ id: 'u-gone', name: 'Gone', email: 'gone@example.com', emailVerified: true })
+    await db.insert(authSession).values({ id: 's-gone', token: 't-gone', userId: 'u-gone', expiresAt: new Date(Date.now() + 86_400_000) })
+    expect(await removeInvite(db, 'Gone@Example.com')).toBe(true)
+    expect(await isInvited(db, 'gone@example.com')).toBe(false)
+    expect(await db.select().from(authSession).where(eq(authSession.userId, 'u-gone'))).toEqual([])
+    // The same FIRST_INVITES at the next start must not let them back in.
+    await seedFirstInvites(db, 'gone@example.com')
+    expect(await isInvited(db, 'gone@example.com')).toBe(false)
+    // Only a person's own decision does.
+    await addInvite(db, 'gone@example.com')
+    expect(await isInvited(db, 'gone@example.com')).toBe(true)
+    expect(await removeInvite(db, 'never-there@example.com')).toBe(false)
   })
 })
 

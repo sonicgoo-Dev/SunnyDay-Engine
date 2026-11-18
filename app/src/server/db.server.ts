@@ -6,10 +6,10 @@
 import { openDb, readSettings, type OpenDb, type Settings } from '@sunnyday/shared'
 
 type Server = { settings: Settings; open: OpenDb }
-type Shared = { server?: Server; ready: boolean }
+type Shared = { server?: Server; ready: boolean; waiting: Array<() => void> }
 
 const KEY = Symbol.for('sunnyday.server')
-const shared = ((globalThis as Record<symbol, unknown>)[KEY] ??= { ready: false }) as Shared
+const shared = ((globalThis as Record<symbol, unknown>)[KEY] ??= { ready: false, waiting: [] }) as Shared
 
 export function getServer(): Server {
   if (shared.server) return shared.server
@@ -25,7 +25,16 @@ export const getSettings = () => getServer().settings
 export const isReady = () => shared.ready
 export const setReady = (ready: boolean) => {
   shared.ready = ready
+  if (ready) for (const go of shared.waiting.splice(0)) go()
 }
+
+/**
+ * Resolves once startup has finished. The server starts listening a moment
+ * before the table changes are done; anything that touches the database
+ * for a visitor waits here first, so it never meets a half-made database.
+ */
+export const whenReady = (): Promise<void> =>
+  shared.ready ? Promise.resolve() : new Promise((go) => shared.waiting.push(go))
 
 export async function closeServer(): Promise<void> {
   const s = shared.server

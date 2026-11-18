@@ -33,7 +33,7 @@ marks on a screen; phone width, light and dark; semantic color tokens only.
   page opens the database.
 - [x] 9. **Worker** starts, checks the wall, idles, stops cleanly.
 - [x] 10. **Rulebook, readme, `render.yaml`, help pages.**
-- [ ] 11. **Self-check and fresh reviewer**; fix what they find.
+- [x] 11. **Self-check and fresh reviewer**; fix what they find. Reviewer found no blockers; its ten findings are fixed (pool survives a database restart, a removed invitation stays removed, errors reach Sentry, visitors wait for startup, safer startup messages, wider tests).
 - [ ] 12. **Show Eric.** Cost approval, his four click jobs, deploy on his
   go-ahead, his sign-in on a phone.
 

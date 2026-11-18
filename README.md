@@ -37,3 +37,9 @@ npm test
 ```
 npm run invite -- tester@example.com
 ```
+
+To take an invitation away (this also signs that person out everywhere):
+
+```
+npm run uninvite -- tester@example.com
+```

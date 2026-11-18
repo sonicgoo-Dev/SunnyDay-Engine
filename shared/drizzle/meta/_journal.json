@@ -15,6 +15,13 @@
       "when": 1794978771609,
       "tag": "0001_wall",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794979714714,
+      "tag": "0002_even_network",
+      "breakpoints": true
     }
   ]
 }

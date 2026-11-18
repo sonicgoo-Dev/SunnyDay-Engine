@@ -13,7 +13,16 @@ export type OpenDb = { db: Db; pool: pg.Pool; close: () => Promise<void> }
 export function openDb(databaseUrl: string, max = 10): OpenDb {
   // Render's hosted database needs TLS; a database on this computer does not.
   const local = /@(localhost|127\.0\.0\.1)[:/]/.test(databaseUrl)
-  const pool = new pg.Pool({ connectionString: databaseUrl, max, ...(local ? {} : { ssl: { rejectUnauthorized: false } }) })
+  const pool = new pg.Pool({
+    connectionString: databaseUrl,
+    max,
+    // Answer "the database is not answering" within ten seconds instead of hanging.
+    connectionTimeoutMillis: 10_000,
+    ...(local ? {} : { ssl: { rejectUnauthorized: false } }),
+  })
+  // When the host restarts the database, idle connections report an error.
+  // Unheard, that would stop the whole process; heard, the pool just reconnects.
+  pool.on('error', (err) => console.error('[db] an idle connection dropped:', err.message))
   const db = drizzle(pool, { schema })
   return { db, pool, close: () => pool.end() }
 }

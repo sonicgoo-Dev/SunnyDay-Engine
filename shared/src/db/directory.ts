@@ -1,9 +1,9 @@
 // The invited list and the workspaces: what sign-in needs before any
 // workspace is known. Server code only.
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Db, Query } from './client.js'
-import { invite, membership, workspace, type Role } from './schema/index.js'
+import { authSession, authUser, invite, membership, workspace, type Role } from './schema/index.js'
 
 const emailShape = z.string().email()
 
@@ -16,23 +16,52 @@ export function normalizeEmail(raw: string | null | undefined): string | null {
 export async function isInvited(db: Query, email: string | null | undefined): Promise<boolean> {
   const e = normalizeEmail(email)
   if (!e) return false
-  const rows = await db.select({ email: invite.email }).from(invite).where(eq(invite.email, e)).limit(1)
+  const rows = await db.select({ email: invite.email }).from(invite).where(and(eq(invite.email, e), isNull(invite.removedAt))).limit(1)
   return rows.length === 1
 }
 
-/** Adds an address to the invited list. Safe to repeat. Returns false for something that is not an email address. */
+/**
+ * Invites an address, by a person's decision. Safe to repeat, and it
+ * brings back an invitation that was taken away. Returns false for
+ * something that is not an email address.
+ */
 export async function addInvite(db: Query, email: string, note?: string): Promise<boolean> {
   const e = normalizeEmail(email)
   if (!e) return false
-  await db.insert(invite).values({ email: e, note: note ?? null }).onConflictDoNothing()
+  await db
+    .insert(invite)
+    .values({ email: e, note: note ?? null })
+    .onConflictDoUpdate({ target: invite.email, set: { removedAt: null } })
   return true
 }
 
-/** FIRST_INVITES: comma-separated addresses added at startup. Returns the ones that were not email addresses. */
+/**
+ * Takes an invitation away and signs that person out everywhere. The row
+ * stays, marked removed, so FIRST_INVITES cannot let them back in.
+ * Returns false when the address was not on the list.
+ */
+export async function removeInvite(db: Db, email: string): Promise<boolean> {
+  const e = normalizeEmail(email)
+  if (!e) return false
+  return db.transaction(async (tx) => {
+    const gone = await tx.update(invite).set({ removedAt: sql`now()` }).where(eq(invite.email, e)).returning({ email: invite.email })
+    const people = await tx.select({ id: authUser.id }).from(authUser).where(sql`lower(${authUser.email}) = ${e}`)
+    for (const p of people) await tx.delete(authSession).where(eq(authSession.userId, p.id))
+    return gone.length === 1
+  })
+}
+
+/**
+ * FIRST_INVITES: comma-separated addresses added at startup. It only ever
+ * adds a new address; one that was taken away stays away. Returns the
+ * entries that were not email addresses.
+ */
 export async function seedFirstInvites(db: Query, csv: string): Promise<string[]> {
   const bad: string[] = []
   for (const part of csv.split(',').map((p) => p.trim()).filter(Boolean)) {
-    if (!(await addInvite(db, part, 'first invites'))) bad.push(part)
+    const e = normalizeEmail(part)
+    if (!e) bad.push(part)
+    else await db.insert(invite).values({ email: e, note: 'first invites' }).onConflictDoNothing()
   }
   return bad
 }

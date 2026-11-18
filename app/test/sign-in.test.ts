@@ -3,7 +3,9 @@
 import { eq } from 'drizzle-orm'
 import { addInvite, invite, openDb, type Settings } from '@sunnyday/shared'
 import { afterAll, describe, expect, it } from 'vitest'
-import { createSignIn } from '@/auth/auth.server'
+import { createHmac } from 'node:crypto'
+import { authUser } from '@sunnyday/shared'
+import { createSignIn, whoIs } from '@/auth/auth.server'
 import { NOT_INVITED, maySignIn } from '@/auth/may-sign-in'
 import { TEST_DATABASE_URL } from './global-setup'
 
@@ -63,5 +65,37 @@ describe('sign-in', () => {
     const user = await a.createUser({ email: 'leaver@example.com', name: 'Leaver', emailVerified: true }, { method: 'test' })
     await db.delete(invite).where(eq(invite.email, 'leaver@example.com'))
     await expect(a.createSession(user.id)).rejects.toMatchObject({ body: { code: NOT_INVITED } })
+  })
+
+  // The cookie a browser would hold for this session, signed as Better Auth signs it.
+  const browserOf = (token: string) => {
+    const signature = createHmac('sha256', settings.SIGNIN_SECRET).update(token).digest('base64')
+    return new Headers({ cookie: `sunnyday.session_token=${encodeURIComponent(`${token}.${signature}`)}` })
+  }
+
+  it('someone already signed in is locked out the moment their invitation is removed', async () => {
+    await addInvite(db, 'midway@example.com')
+    const a = await adapter()
+    const user = await a.createUser({ email: 'midway@example.com', name: 'Midway', emailVerified: true }, { method: 'test' })
+    const browser = browserOf((await a.createSession(user.id)).token)
+    // Signed in, with a workspace of their own.
+    expect(await whoIs(auth, db, browser)).toMatchObject({ email: 'midway@example.com', role: 'agent', workspaceName: 'Midway' })
+    await db.delete(invite).where(eq(invite.email, 'midway@example.com'))
+    expect(await whoIs(auth, db, browser)).toBeNull()
+  })
+
+  it('someone already signed in is locked out if their address stops being verified', async () => {
+    await addInvite(db, 'slipped@example.com')
+    const a = await adapter()
+    const user = await a.createUser({ email: 'slipped@example.com', name: 'Slipped', emailVerified: true }, { method: 'test' })
+    const browser = browserOf((await a.createSession(user.id)).token)
+    expect(await whoIs(auth, db, browser)).not.toBeNull()
+    await db.update(authUser).set({ emailVerified: false }).where(eq(authUser.id, user.id))
+    expect(await whoIs(auth, db, browser)).toBeNull()
+  })
+
+  it('a made-up or unsigned cookie is nobody', async () => {
+    expect(await whoIs(auth, db, new Headers({ cookie: 'sunnyday.session_token=made-up' }))).toBeNull()
+    expect(await whoIs(auth, db, new Headers())).toBeNull()
   })
 })
