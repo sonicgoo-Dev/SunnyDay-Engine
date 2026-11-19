@@ -2,8 +2,11 @@
 // request in this file goes through gmailGet, which can only ask; there is
 // no code here that marks, moves, labels, drafts, sends or deletes. A test
 // (shared/test/mail.test.ts) fails if that ever stops being true.
+// Build 4 adds reading one year's window for List Builder, and the text of
+// a single message for its AI to read once; the text is never stored.
 import { z } from 'zod'
 import { GOOGLE_TIMEOUT_MS, GoogleError, ReconnectNeeded, type Fetch } from './google-token.js'
+import { htmlToText, tidyMailText } from './text.js'
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
@@ -103,4 +106,76 @@ export async function messageSummary(doFetch: Fetch, accessToken: string, id: st
     excerpt: short(m.snippet, 300),
     sentAt: new Date(Number(m.internalDate)),
   }
+}
+
+// ---- List Builder (Build 4): one window of time, and one message's text ----
+
+/** One page of message ids between two moments, newest first, with the mark for the next page. */
+export async function messageIdPage(doFetch: Fetch, accessToken: string, w: { afterMs: number; beforeMs: number; pageToken?: string | undefined }): Promise<{ ids: string[]; next: string | null }> {
+  const got = page.parse(
+    await gmailGet(doFetch, accessToken, '/messages', {
+      q: `after:${Math.floor(w.afterMs / 1000)} before:${Math.ceil(w.beforeMs / 1000)} -in:drafts -in:chats`,
+      maxResults: '500',
+      ...(w.pageToken ? { pageToken: w.pageToken } : {}),
+    }),
+  )
+  return { ids: got.messages.map((m) => m.id), next: got.nextPageToken ?? null }
+}
+
+/** True when the message's own top lines say it is a mailing: a newsletter, a notice, an automatic reply. */
+export function saysItIsAMailing(header: (name: string) => string | undefined): boolean {
+  if (header('list-unsubscribe') || header('list-id')) return true
+  if (/\b(bulk|list|junk)\b/i.test(header('precedence') ?? '')) return true
+  const auto = (header('auto-submitted') ?? '').trim().toLowerCase()
+  return auto !== '' && auto !== 'no'
+}
+
+/** The same top lines as messageSummary, plus whether the message says it is a mailing. Still never the message itself. */
+export async function messageTopLines(doFetch: Fetch, accessToken: string, id: string): Promise<{ summary: MessageSummary; bulk: boolean }> {
+  const m = message.parse(
+    await gmailGet(doFetch, accessToken, `/messages/${encodeURIComponent(id)}`, {
+      format: 'metadata',
+      metadataHeaders: ['From', 'To', 'Subject', 'List-Unsubscribe', 'List-Id', 'Precedence', 'Auto-Submitted'],
+    }),
+  )
+  const header = (name: string) => m.payload.headers.find((h) => h.name.toLowerCase() === name)?.value
+  const from = parseSender(header('from'))
+  return {
+    summary: {
+      providerId: m.id,
+      threadId: m.threadId ?? null,
+      direction: m.labelIds.includes('SENT') ? 'out' : 'in',
+      fromName: short(from.name ?? undefined, 200),
+      fromEmail: short(from.email ?? undefined, 320),
+      toLine: short(header('to'), 500),
+      subject: short(header('subject'), 300),
+      excerpt: short(m.snippet, 300),
+      sentAt: new Date(Number(m.internalDate)),
+    },
+    bulk: saysItIsAMailing(header),
+  }
+}
+
+type Part = { mimeType?: unknown; body?: { data?: unknown }; parts?: unknown }
+
+/** The first part of a kind, wherever it sits in the message. */
+function findPart(part: Part | undefined, mime: string, depth = 0): string | null {
+  if (!part || depth > 8) return null
+  if (part.mimeType === mime && typeof part.body?.data === 'string' && part.body.data) return Buffer.from(part.body.data, 'base64url').toString('utf8')
+  for (const child of Array.isArray(part.parts) ? (part.parts as Part[]) : []) {
+    const found = findPart(child, mime, depth + 1)
+    if (found) return found
+  }
+  return null
+}
+
+/**
+ * The words of one message, tidied and cut short, for List Builder's AI to
+ * read once. Attachments are never opened. Nothing here is stored.
+ */
+export async function messageText(doFetch: Fetch, accessToken: string, id: string, max = 2000): Promise<string> {
+  const m = (await gmailGet(doFetch, accessToken, `/messages/${encodeURIComponent(id)}`, { format: 'full' })) as { payload?: Part }
+  const plain = findPart(m.payload, 'text/plain')
+  const text = plain ?? htmlToText(findPart(m.payload, 'text/html') ?? '')
+  return tidyMailText(text, max)
 }

@@ -18,6 +18,12 @@ export const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.compose',
 ] as const
 
+/**
+ * Asked for from Build 4 on, so List Builder can read (never change) her
+ * Google Contacts. Not required: a connection without it still reads mail.
+ */
+export const CONTACTS_SCOPE = 'https://www.googleapis.com/auth/contacts.readonly'
+
 /** No request to Google may hang: one stuck call would hold up every workspace's turn. */
 export const GOOGLE_TIMEOUT_MS = 15_000
 
@@ -30,7 +36,7 @@ export function consentUrl(client: GoogleClient, redirectUri: string, state: str
     client_id: client.clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: GMAIL_SCOPES.join(' '),
+    scope: [...GMAIL_SCOPES, CONTACTS_SCOPE].join(' '),
     // "offline" + "consent" is what makes Google hand over a lasting token.
     access_type: 'offline',
     prompt: 'consent',
@@ -62,8 +68,8 @@ async function post(doFetch: Fetch, url: string, form: Record<string, string>): 
   return doFetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form), signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
 }
 
-/** Swaps the code Google sent back for tokens. Fails if Google gave no lasting token or not every permission. */
-export async function exchangeCode(doFetch: Fetch, client: GoogleClient, redirectUri: string, code: string): Promise<{ accessToken: string; refreshToken: string }> {
+/** Swaps the code Google sent back for tokens. Fails if Google gave no lasting token or not every mail permission. Contacts may be left unticked. */
+export async function exchangeCode(doFetch: Fetch, client: GoogleClient, redirectUri: string, code: string): Promise<{ accessToken: string; refreshToken: string; canReadContacts: boolean }> {
   const res = await post(doFetch, TOKEN_URL, {
     code,
     client_id: client.clientId,
@@ -76,7 +82,7 @@ export async function exchangeCode(doFetch: Fetch, client: GoogleClient, redirec
   if (!body.refresh_token) throw new GoogleError('finishing the connection (no lasting permission was given)', res.status)
   const granted = body.scope.split(' ')
   if (!GMAIL_SCOPES.every((s) => granted.includes(s))) throw new MissingPermission()
-  return { accessToken: body.access_token, refreshToken: body.refresh_token }
+  return { accessToken: body.access_token, refreshToken: body.refresh_token, canReadContacts: granted.includes(CONTACTS_SCOPE) }
 }
 
 /** The person unticked a box on Google's screen. SunnyDay needs all of them. */

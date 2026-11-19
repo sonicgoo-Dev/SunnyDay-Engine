@@ -11,6 +11,7 @@ import {
   contactWay,
   customField,
   customValue,
+  detailSource,
   familyMember,
   household,
   mailMessage,
@@ -24,6 +25,7 @@ import {
 } from '../db/schema/index.js'
 import { inWorkspace, type InWorkspace } from '../db/workspace.js'
 import type { AddData, PartData } from './input.js'
+import { sourceLine } from '../list/rules.js'
 import { SEARCH_LIMIT, businessRoleLabel, foundByLabel, isBackward, mayMove, tabFor, type Mover, type Side, type Tab } from './rules.js'
 
 export class ContactNotFound extends Error {
@@ -156,6 +158,8 @@ export type ContactPage = {
   referred: Array<{ id: string; fullName: string }>
   household: { id: string; contacts: Array<{ id: string; fullName: string }>; family: Array<{ id: string; name: string; relation: string; birthday: string | null }> } | null
   fields: Array<{ id: string; name: string; type: string; value: string | null }>
+  /** Where a detail came from, for the ones List Builder found (Build 4): "from an email on Mar 3, 2025". */
+  sources: Array<{ kind: string; value: string; line: string }>
   story: StoryItem[]
   createdAt: string
 }
@@ -195,6 +199,9 @@ export async function getContact(db: Db, workspaceId: string, contactId: string,
       .from(customField)
       .leftJoin(customValue, and(eq(customValue.fieldId, customField.id), eq(customValue.contactId, c.id)))
       .orderBy(asc(customField.createdAt))
+
+    const found = await tx.select({ kind: detailSource.kind, value: detailSource.value, source: detailSource.source }).from(detailSource).where(eq(detailSource.contactId, c.id)).orderBy(asc(detailSource.createdAt))
+    const sources = found.map((f) => ({ kind: f.kind, value: f.value, line: sourceLine(f.source) }))
 
     const events = await tx.select().from(storyEvent).where(eq(storyEvent.contactId, c.id)).orderBy(desc(storyEvent.at)).limit(200)
     const emails = ways.filter((w) => w.kind === 'email').map((w) => w.value)
@@ -261,6 +268,7 @@ export async function getContact(db: Db, workspaceId: string, contactId: string,
       referred,
       household: home,
       fields,
+      sources,
       story,
       createdAt: c.createdAt.toISOString(),
     }
@@ -270,7 +278,7 @@ export async function getContact(db: Db, workspaceId: string, contactId: string,
 // ---- Search text -----------------------------------------------------------
 
 /** Rebuilds the words search looks through for these contacts. Never includes the nickname. */
-async function refreshSearch(tx: InWorkspace, contactIds: string[]): Promise<void> {
+export async function refreshSearch(tx: InWorkspace, contactIds: string[]): Promise<void> {
   for (const id of new Set(contactIds)) {
     const [c] = await tx.select().from(contact).where(eq(contact.id, id))
     if (!c) continue
@@ -349,7 +357,16 @@ const firstWays = (workspaceId: string, contactId: string, p: { phone: string | 
 
 /** Adds someone by hand. A partner joins them in one household, with the same sides and the same answer to how they found her. */
 export async function addContact(db: Db, workspaceId: string, input: AddData, byUserId: string | null): Promise<{ ids: string[] }> {
-  return inWorkspace(db, workspaceId, async (tx) => {
+  return inWorkspace(db, workspaceId, (tx) => addContactIn(tx, workspaceId, input, byUserId))
+}
+
+/**
+ * The one way a contact is made, inside a transaction already in the
+ * workspace. Add by hand uses it, and so does a Yes in List Builder
+ * (shared/src/list/confirm.ts), so every rule here holds for both.
+ */
+export async function addContactIn(tx: InWorkspace, workspaceId: string, input: AddData, byUserId: string | null, via?: 'list_builder'): Promise<{ ids: string[] }> {
+  {
     if (input.business) {
       const [c] = await tx
         .insert(contact)
@@ -357,7 +374,7 @@ export async function addContact(db: Db, workspaceId: string, input: AddData, by
         .returning({ id: contact.id })
       const ways = firstWays(workspaceId, c!.id, input)
       if (ways.length) await tx.insert(contactWay).values(ways)
-      await story(tx, workspaceId, c!.id, 'added', {}, byUserId)
+      await story(tx, workspaceId, c!.id, 'added', via ? { via } : {}, byUserId)
       await refreshSearch(tx, [c!.id])
       return { ids: [c!.id] }
     }
@@ -385,12 +402,12 @@ export async function addContact(db: Db, workspaceId: string, input: AddData, by
         .returning({ id: contact.id })
       const ways = firstWays(workspaceId, c!.id, p)
       if (ways.length) await tx.insert(contactWay).values(ways)
-      await story(tx, workspaceId, c!.id, 'added', { text: foundByLabel(input.foundBy) }, byUserId)
+      await story(tx, workspaceId, c!.id, 'added', { text: foundByLabel(input.foundBy), ...(via ? { via } : {}) }, byUserId)
       ids.push(c!.id)
     }
     await refreshSearch(tx, ids)
     return { ids }
-  })
+  }
 }
 
 const describeFound = (c: { foundBy: string | null; foundByOther: string | null; referredByName: string | null }, referrer: string | null) =>

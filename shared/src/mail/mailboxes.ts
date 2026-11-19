@@ -19,7 +19,7 @@ const FIRST_READ_DAYS = 14
 /** At most this many messages a turn, so one full mailbox never holds up other workspaces. */
 const PER_TURN = 150
 
-export type MailboxView = { id: string; kind: MailboxKind; role: MailboxRole; address: string; status: MailboxStatus; lastReadAt: Date | null; lastProblem: string | null }
+export type MailboxView = { id: string; kind: MailboxKind; role: MailboxRole; address: string; status: MailboxStatus; lastReadAt: Date | null; lastProblem: string | null; canReadContacts: boolean }
 
 const view = {
   id: mailbox.id,
@@ -29,6 +29,7 @@ const view = {
   status: mailbox.status,
   lastReadAt: mailbox.lastReadAt,
   lastProblem: mailbox.lastProblem,
+  canReadContacts: mailbox.canReadContacts,
 }
 
 /** What Settings shows. Never the stored way in. */
@@ -56,7 +57,8 @@ export class SecondMainMailbox extends Error {
  * mailbox mail goes out from) and queues its first read. Connecting the
  * same address again replaces the stored way in.
  */
-export async function saveGmailConnection(db: Db, connectionKey: string, workspaceId: string, c: { address: string; refreshToken: string }): Promise<string> {
+export async function saveGmailConnection(db: Db, connectionKey: string, workspaceId: string, c: { address: string; refreshToken: string; canReadContacts?: boolean }): Promise<string> {
+  const canReadContacts = c.canReadContacts ?? false
   const sealed = seal(connectionKey, workspaceId, c.refreshToken)
   return inWorkspace(db, workspaceId, async (tx) => {
     const mains = await tx.select({ address: mailbox.address }).from(mailbox).where(eq(mailbox.role, 'main'))
@@ -64,11 +66,11 @@ export async function saveGmailConnection(db: Db, connectionKey: string, workspa
     if (other) throw new SecondMainMailbox(other.address)
     const [saved] = await tx
       .insert(mailbox)
-      .values({ workspaceId, kind: 'gmail', role: 'main', address: c.address, sealed })
+      .values({ workspaceId, kind: 'gmail', role: 'main', address: c.address, sealed, canReadContacts })
       // If this address was the read-only second mailbox, it becomes the main one, read afresh.
       .onConflictDoUpdate({
         target: [mailbox.workspaceId, mailbox.address],
-        set: { sealed, kind: 'gmail', role: 'main', status: 'connected', lastProblem: null, cursor: sql`case when ${mailbox.kind} = 'gmail' then ${mailbox.cursor} else '{}'::jsonb end` },
+        set: { sealed, kind: 'gmail', role: 'main', status: 'connected', lastProblem: null, canReadContacts, cursor: sql`case when ${mailbox.kind} = 'gmail' then ${mailbox.cursor} else '{}'::jsonb end` },
       })
       .returning({ id: mailbox.id })
     await enqueue(tx, readJob(workspaceId, saved!.id))
@@ -90,7 +92,7 @@ export async function saveImapConnection(deps: { db: Db; connectionKey: string; 
     const [saved] = await tx
       .insert(mailbox)
       .values({ workspaceId, kind: 'imap', role: 'read_only', address: address.trim().toLowerCase(), sealed })
-      .onConflictDoUpdate({ target: [mailbox.workspaceId, mailbox.address], set: { sealed, kind: 'imap', role: 'read_only', status: 'connected', lastProblem: null, cursor: {} } })
+      .onConflictDoUpdate({ target: [mailbox.workspaceId, mailbox.address], set: { sealed, kind: 'imap', role: 'read_only', status: 'connected', lastProblem: null, canReadContacts: false, cursor: {} } })
       .returning({ id: mailbox.id })
     await enqueue(tx, readJob(workspaceId, saved!.id))
     return saved!.id

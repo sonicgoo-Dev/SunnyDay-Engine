@@ -26,6 +26,7 @@
     "uninvite": "node dist/scripts/uninvite.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.10.0",
     "drizzle-orm": "0.45.4",
     "imapflow": "2.12.1",
     "pg": "8.23.1",

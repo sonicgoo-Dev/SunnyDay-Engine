@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { job, mailMessage, mailbox, workspace } from '../src/db/schema/index.js'
 import { inWorkspace } from '../src/db/workspace.js'
 import { parseSender } from '../src/mail/gmail.js'
-import { GMAIL_SCOPES, MissingPermission, consentUrl, exchangeCode, type Fetch } from '../src/mail/google-token.js'
+import { CONTACTS_SCOPE, GMAIL_SCOPES, MissingPermission, consentUrl, exchangeCode, type Fetch } from '../src/mail/google-token.js'
 import { ImapSignInRefused, imapWayIn, type ImapReader } from '../src/mail/imap.js'
 import { SecondMainMailbox, disconnectMailbox, ensureReadsQueued, listMailboxes, readMailbox, saveGmailConnection, saveImapConnection } from '../src/mail/mailboxes.js'
 import { openTestDb } from './db.js'
@@ -59,9 +59,11 @@ const NOW = Date.UTC(2026, 10, 17, 12)
 const hoursAgo = (h: number) => NOW - h * 3_600_000
 
 describe('asking Google for permission', () => {
-  it('asks to read, draft and send, and for a lasting permission', () => {
+  it('asks to read, draft and send, to see her contacts, and for a lasting permission', () => {
     const url = new URL(consentUrl(google, 'https://app.example.com/api/mail/google/callback', 'state-123'))
-    expect(url.searchParams.get('scope')!.split(' ')).toEqual([...GMAIL_SCOPES])
+    expect(url.searchParams.get('scope')!.split(' ')).toEqual([...GMAIL_SCOPES, CONTACTS_SCOPE])
+    // Seeing contacts only: never a permission that could change them.
+    expect(CONTACTS_SCOPE).toBe('https://www.googleapis.com/auth/contacts.readonly')
     expect(url.searchParams.get('access_type')).toBe('offline')
     expect(url.searchParams.get('state')).toBe('state-123')
   })
@@ -69,6 +71,12 @@ describe('asking Google for permission', () => {
   it('refuses a connection where a permission box was left unticked', async () => {
     const partial = (async () => new Response(JSON.stringify({ access_token: 'x', refresh_token: 'y', scope: GMAIL_SCOPES[0] }))) as Fetch
     await expect(exchangeCode(partial, google, 'https://x/cb', 'code')).rejects.toBeInstanceOf(MissingPermission)
+  })
+
+  it('the contacts box may be left unticked: mail still connects, and SunnyDay knows contacts are off', async () => {
+    const answering = (scope: string) => (async () => new Response(JSON.stringify({ access_token: 'x', refresh_token: 'y', scope }))) as Fetch
+    expect(await exchangeCode(answering(GMAIL_SCOPES.join(' ')), google, 'https://x/cb', 'code')).toMatchObject({ canReadContacts: false })
+    expect(await exchangeCode(answering([...GMAIL_SCOPES, CONTACTS_SCOPE].join(' ')), google, 'https://x/cb', 'code')).toMatchObject({ canReadContacts: true })
   })
 })
 
@@ -102,7 +110,7 @@ describe('a Gmail connection', () => {
 
   it('what Settings is given never includes the stored way in', async () => {
     const [seen] = await listMailboxes(db, a)
-    expect(Object.keys(seen!).sort()).toEqual(['address', 'id', 'kind', 'lastProblem', 'lastReadAt', 'role', 'status'])
+    expect(Object.keys(seen!).sort()).toEqual(['address', 'canReadContacts', 'id', 'kind', 'lastProblem', 'lastReadAt', 'role', 'status'])
   })
 
   it('a first read keeps a short summary of the last two weeks, and changes nothing in the mailbox', async () => {
@@ -258,15 +266,23 @@ describe('rule 4, held by reading the code itself', () => {
     expect(gmail.match(/doFetch\(/g)).toHaveLength(1)
   })
 
-  it('the second-mailbox reader opens the inbox read only and holds no call that changes it', () => {
+  it('the second-mailbox reader opens the inbox read only, in one place, and holds no call that changes it', () => {
     const imap = code('imap.ts')
+    // Every reader goes through the one opening, and that opening is read only: the server itself then refuses any change, "read" marks included.
+    expect(imap.match(/mailboxOpen\(/g)).toHaveLength(1)
     expect(imap).toContain("mailboxOpen('INBOX', { readOnly: true })")
-    expect(imap).not.toMatch(/messageFlags|messageDelete|messageMove|messageCopy|\.append\(|mailboxCreate|mailboxDelete|mailboxRename|setFlagColor|\.idle\(/)
-    // Envelopes only: the message text is never downloaded in this build.
-    expect(imap).not.toMatch(/source\s*:|bodyParts|bodyStructure|\.download/)
+    expect(imap.match(/new ImapFlow\(/g)).toHaveLength(1)
+    expect(imap).not.toMatch(/messageFlags|messageDelete|messageMove|messageCopy|\.append\(|mailboxCreate|mailboxDelete|mailboxRename|setFlagColor|\.idle\(|mailboxSubscribe/)
+    // Build 4: the text of a message may be read for List Builder's AI, but never a whole raw message, and never an attachment.
+    expect(imap).not.toMatch(/source\s*:/)
+    expect(imap).toContain("disposition?.toLowerCase() !== 'attachment'")
+  })
+
+  it('the Gmail reader never asks for an attachment', () => {
+    expect(code('gmail.ts')).not.toMatch(/attachments/)
   })
 
   it('nothing in the mail code sends mail', () => {
-    for (const f of ['gmail.ts', 'imap.ts', 'mailboxes.ts', 'google-token.ts']) expect(code(f), f).not.toMatch(/smtp|nodemailer|sendMail|messages\/send/i)
+    for (const f of ['gmail.ts', 'imap.ts', 'mailboxes.ts', 'google-token.ts', 'google-contacts.ts', 'text.ts']) expect(code(f), f).not.toMatch(/smtp|nodemailer|sendMail|messages\/send/i)
   })
 })

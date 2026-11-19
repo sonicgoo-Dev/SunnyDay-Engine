@@ -45,6 +45,8 @@ export const mailbox = wsSchema.table(
     cursor: jsonb('cursor').$type<{ afterMs?: number; uidValidity?: string; lastUid?: number }>().notNull().default({}),
     lastReadAt: timestamp('last_read_at', { withTimezone: true }),
     lastProblem: text('last_problem'),
+    // Whether Google's "see your contacts" permission was given (Build 4). Mail reading never depends on it.
+    canReadContacts: boolean('can_read_contacts').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('mailbox_one_per_address').on(t.workspaceId, t.address)],
@@ -234,7 +236,7 @@ export const customValue = wsSchema.table(
 
 export const STORY_KINDS = ['added', 'stage', 'note', 'found', 'household', 'put_away', 'brought_back'] as const
 export type StoryKind = (typeof STORY_KINDS)[number]
-export type StoryBody = { text?: string; side?: 'buyer' | 'seller'; from?: string | null; to?: string; was?: string; withName?: string }
+export type StoryBody = { text?: string; side?: 'buyer' | 'seller'; from?: string | null; to?: string; was?: string; withName?: string; via?: 'list_builder' }
 
 /** The story: each thing that happened to this person, newest first. Emails are read from mail_message, not copied here. */
 export const storyEvent = wsSchema.table(
@@ -251,4 +253,153 @@ export const storyEvent = wsSchema.table(
     at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('story_by_contact').on(t.contactId, t.at)],
+)
+
+// ---- List Builder (Build 4) ------------------------------------------------
+
+export const LIST_RUN_STATUSES = ['reading', 'sorting', 'thinking', 'paused', 'ready'] as const
+export type ListRunStatus = (typeof LIST_RUN_STATUSES)[number]
+/** Where one mailbox's (or Google Contacts') reading has got to within a run. */
+export type RunPart = { done: boolean; pageToken?: string; afterUid?: number; problem?: string }
+
+/**
+ * One year of mail she asked List Builder to read. Year 1 is the last 12
+ * months; each later year is read only when she asks, and there is never a
+ * sixth (decision 1, Eric, Nov 18, 2026).
+ */
+export const listRun = wsSchema.table(
+  'list_run',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: workspaceId(),
+    year: integer('year').notNull(),
+    fromAt: timestamp('from_at', { withTimezone: true }).notNull(),
+    toAt: timestamp('to_at', { withTimezone: true }).notNull(),
+    status: text('status', { enum: LIST_RUN_STATUSES }).notNull().default('reading'),
+    // Why it is paused: the month's AI limit was reached, or the AI is not switched on yet.
+    pausedWhy: text('paused_why', { enum: ['limit', 'not_ready'] }),
+    // Keyed by mailbox id, plus "google" for Google Contacts.
+    parts: jsonb('parts').$type<Record<string, RunPart>>().notNull().default({}),
+    messagesRead: integer('messages_read').notNull().default(0),
+    toLook: integer('to_look').notNull().default(0),
+    looked: integer('looked').notNull().default(0),
+    lastProblem: text('last_problem'),
+    startedBy: text('started_by'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+  },
+  (t) => [uniqueIndex('list_run_one_per_year').on(t.workspaceId, t.year)],
+)
+
+/**
+ * The top lines of one message read for a run: who, when, the subject and a
+ * short excerpt. Never the message text. A working table: rows for
+ * automated senders go when sorting ends, the rest when the year is
+ * finished. On Yes, that person's rows are copied to mail_message.
+ */
+export const listMail = wsSchema.table(
+  'list_mail',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: workspaceId(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => listRun.id, { onDelete: 'cascade' }),
+    mailboxId: uuid('mailbox_id')
+      .notNull()
+      .references(() => mailbox.id, { onDelete: 'cascade' }),
+    providerId: text('provider_id').notNull(),
+    threadId: text('thread_id'),
+    direction: text('direction', { enum: MAIL_DIRECTIONS }).notNull(),
+    fromName: text('from_name'),
+    fromEmail: text('from_email'),
+    toLine: text('to_line'),
+    subject: text('subject'),
+    excerpt: text('excerpt'),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull(),
+    // The message itself says it is a mailing (a newsletter, a notice).
+    bulk: boolean('bulk').notNull().default(false),
+  },
+  (t) => [uniqueIndex('list_mail_once').on(t.mailboxId, t.providerId), index('list_mail_by_run').on(t.runId)],
+)
+
+export const LIST_KINDS = ['past_client', 'client', 'lead', 'business', 'nobody', 'unsure'] as const
+export type ListKind = (typeof LIST_KINDS)[number]
+/** What List Builder proposes for one person. Only ever a proposal: her answer decides. */
+export type ListProposal = {
+  kind: ListKind
+  side: 'buyer' | 'seller' | 'both' | null
+  businessRole: string | null
+  company: string | null
+  /** One plain line saying why. */
+  why: string
+  sure: 'high' | 'medium' | 'low'
+  foundBy: string | null
+  foundByOther: string | null
+}
+/** Where a detail came from: a dated email, Google Contacts or the phone file. */
+export type DetailFrom = { from: 'email' | 'google' | 'phone'; at?: string; subject?: string }
+export type FoundDetail = {
+  id: string
+  kind: 'phone' | 'email' | 'address' | 'partner' | 'company'
+  value: string
+  label?: string
+  source: DetailFrom
+  status: 'open' | 'added' | 'skipped'
+}
+
+export const LIST_BUCKETS = ['person', 'not_contact'] as const
+export const LIST_STATES = ['new', 'proposed', 'yes', 'no'] as const
+export type ListState = (typeof LIST_STATES)[number]
+
+/**
+ * One person or sender List Builder found, in mail, Google Contacts or the
+ * phone file. Never a contact by itself: only her answer makes one
+ * (shared/src/list/confirm.ts, and a test holds that to be the only way).
+ */
+export const listPerson = wsSchema.table(
+  'list_person',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: workspaceId(),
+    name: text('name'),
+    // Every address and phone number known for them: how the same person is recognised across sources.
+    emails: jsonb('emails').$type<string[]>().notNull().default([]),
+    phoneDigits: jsonb('phone_digits').$type<string[]>().notNull().default([]),
+    inMail: boolean('in_mail').notNull().default(false),
+    inGoogle: boolean('in_google').notNull().default(false),
+    inPhone: boolean('in_phone').notNull().default(false),
+    inCount: integer('in_count').notNull().default(0),
+    outCount: integer('out_count').notNull().default(0),
+    firstAt: timestamp('first_at', { withTimezone: true }),
+    lastAt: timestamp('last_at', { withTimezone: true }),
+    bucket: text('bucket', { enum: LIST_BUCKETS }).notNull().default('person'),
+    state: text('state', { enum: LIST_STATES }).notNull().default('new'),
+    // The AI has yet to look at this person's mail from this run.
+    lookRunId: uuid('look_run_id').references(() => listRun.id, { onDelete: 'set null' }),
+    proposal: jsonb('proposal').$type<ListProposal>(),
+    details: jsonb('details').$type<FoundDetail[]>().notNull().default([]),
+    contactId: uuid('contact_id').references(() => contact.id, { onDelete: 'set null' }),
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('list_person_by_state').on(t.workspaceId, t.state, t.bucket), index('list_person_to_look').on(t.lookRunId)],
+)
+
+/** For a saved contact: where one detail came from, shown beside it on the contact page. */
+export const detailSource = wsSchema.table(
+  'detail_source',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: workspaceId(),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contact.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    value: text('value').notNull(),
+    source: jsonb('source').$type<DetailFrom>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('detail_source_by_contact').on(t.contactId)],
 )
