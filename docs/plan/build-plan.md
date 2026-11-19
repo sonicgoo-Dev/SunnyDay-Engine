@@ -273,7 +273,8 @@ when" test has passed and its help pages are written.
   first tester's Gmail and olypen mailboxes are both being read)
 - [x] 3. Contacts and the contact page (live Nov 18, 2026; Done when
   passed on Eric's iPhone, Email opens Gmail as the main address)
-- [ ] 4. List Builder
+- [ ] 4. List Builder (live Nov 18, 2026; not ticked until its Done when
+  passes on the first tester's real mail)
 - [ ] 5. Lead capture
 - [ ] 6. Notes, Today and the morning email
 - [ ] Gate A: the first tester uses it daily

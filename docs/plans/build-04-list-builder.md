@@ -78,8 +78,8 @@ use made-up mail and a pretend AI; no real mailbox and no paid call.
   per person worked out from the made-up run's sizes.
 - [x] 13. **Fresh reviewer**; fix what it finds.
 - [x] 14. Help page, `CLAUDE.md`, `.env.example`, `render.yaml`.
-- [x] 15. **Show Eric**, and stop. Approved by Eric, Nov 18, 2026. Not yet
-  deployed: that waits for his go-ahead.
+- [x] 15. **Show Eric**, and stop. Approved by Eric, Nov 18, 2026. Deployed
+  on his go-ahead the same day; both services came up live.
 
 ## Review focus
 
