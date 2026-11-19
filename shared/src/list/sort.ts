@@ -2,7 +2,7 @@
 // other end, with no AI at all. Machines (newsletters, notices, receipts)
 // go to "Not contacts". Real people are marked for the AI to look at. This
 // is where most of a mailbox is dealt with, for free.
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { Db } from '../db/client.js'
 import { listMail, listPerson, listRun } from '../db/schema/index.js'
 import { inWorkspace } from '../db/workspace.js'
@@ -51,7 +51,12 @@ export async function sortRun(db: Db, workspaceId: string, runId: string): Promi
     const mail = await tx
       .select({ id: listMail.id, direction: listMail.direction, fromEmail: listMail.fromEmail, fromName: listMail.fromName, toLine: listMail.toLine, bulk: listMail.bulk, sentAt: listMail.sentAt })
       .from(listMail)
-      .where(eq(listMail.runId, runId))
+      // Only mail not yet counted: a year whose reading was picked up again is sorted in two goes.
+      .where(and(eq(listMail.runId, runId), eq(listMail.sorted, false)))
+
+    // A second go at the same year (its reading was picked up again): mail from the first go is already counted.
+    const [counted] = await tx.select({ id: listMail.id }).from(listMail).where(and(eq(listMail.runId, runId), eq(listMail.sorted, true))).limit(1)
+    const continued = counted !== undefined
 
     const tallies = new Map<string, Tally>()
     const tallyFor = (email: string, at: Date) => {
@@ -95,11 +100,18 @@ export async function sortRun(db: Db, workspaceId: string, runId: string): Promi
       row.firstAt = row.firstAt && row.firstAt < t.first ? row.firstAt : t.first
       row.lastAt = row.lastAt && row.lastAt > t.last ? row.lastAt : t.last
       // Her answers stand. Only someone not yet answered is sorted (again): a sender she has now written to is a person after all.
-      if (row.state === 'new' && row.contactId === null) row.bucket = isMachine(email, t) && !row.inGoogle && !row.inPhone ? 'not_contact' : 'person'
+      // In a second go, someone the AI has already given a verdict on (a proposal, or "nobody") keeps it:
+      // they are not sorted again and not looked at again, so nobody is ever paid for twice in one year.
+      const settledThisYear = continued && row.proposal !== null && row.lookRunId !== runId
+      // row.outCount is the whole count (earlier goes included): anyone she has ever written to is a person.
+      if (!settledThisYear && row.state === 'new' && row.contactId === null) row.bucket = isMachine(email, { ...t, outCount: row.outCount }) && !row.inGoogle && !row.inPhone ? 'not_contact' : 'person'
       // The AI looks at: new people, and people already answered Yes (for new details only). Never anyone she said No to.
-      const look = row.bucket === 'person' && (row.state === 'new' || row.state === 'yes')
-      if (look) {
-        row.lookRunId = runId
+      const look = !settledThisYear && row.bucket === 'person' && (row.state === 'new' || row.state === 'yes')
+      if (look) row.lookRunId = runId
+      // Someone waiting for a look who turns out to be a machine after all is no longer sent to the AI.
+      else if (row.lookRunId === runId && row.bucket !== 'person') row.lookRunId = null
+      // The top lines of a person's mail are kept for their story, unless she said No to them.
+      if (row.bucket === 'person' && row.state !== 'no') {
         people.add(email)
         // Every address this person is known by counts as theirs when their mail is gathered.
         for (const e of row.emails) people.add(e)
@@ -111,6 +123,7 @@ export async function sortRun(db: Db, workspaceId: string, runId: string): Promi
     // The top lines of mail with machines only are not needed again.
     const drop = mail.filter((m) => !(withWhom.get(m.id) ?? []).some((e) => people.has(e))).map((m) => m.id)
     for (let i = 0; i < drop.length; i += 1000) await tx.delete(listMail).where(inArray(listMail.id, drop.slice(i, i + 1000)))
+    await tx.update(listMail).set({ sorted: true }).where(eq(listMail.runId, runId))
 
     const toLook = (await tx.select({ id: listPerson.id }).from(listPerson).where(eq(listPerson.lookRunId, runId))).length
     await tx.update(listRun).set({ status: 'thinking', toLook, looked: 0 }).where(eq(listRun.id, runId))

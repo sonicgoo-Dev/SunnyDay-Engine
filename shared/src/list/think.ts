@@ -17,8 +17,8 @@ import { unseal } from '../crypto/seal.js'
 import { contact, contactWay, listMail, listPerson, listRun, mailbox, type ListProposal } from '../db/schema/index.js'
 import { inWorkspace } from '../db/workspace.js'
 import { enqueue } from '../jobs/queue.js'
-import { messageText } from '../mail/gmail.js'
-import { accessTokenFrom } from '../mail/google-token.js'
+import { messageText, paceAs } from '../mail/gmail.js'
+import { GoogleBusy, accessTokenFrom } from '../mail/google-token.js'
 import { imapWayIn, readImapTexts } from '../mail/imap.js'
 import { BUSINESS_ROLE_KEYS, FOUND_BY_KEYS } from '../contacts/rules.js'
 import { addDetails, type PersonRow } from './people.js'
@@ -159,10 +159,15 @@ export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: str
     try {
       if (box.kind === 'gmail') {
         const accessToken = await accessTokenFrom(deps.fetch, deps.google, unseal(deps.connectionKey, workspaceId, box.sealed))
+        paceAs(accessToken, box.id)
         for (let i = 0; i < ofBox.length; i += 4) {
           await Promise.all(
             ofBox.slice(i, i + 4).map(async (l) => {
-              const text = await messageText(deps.fetch, accessToken, l.providerId).catch(() => '')
+              const text = await messageText(deps.fetch, accessToken, l.providerId).catch((err: unknown) => {
+                // Google asking SunnyDay to slow down: the whole turn waits and is tried again, with nobody paid for.
+                if (err instanceof GoogleBusy) throw err
+                return ''
+              })
               if (text) texts.set(l.id, text)
             }),
           )
@@ -172,7 +177,8 @@ export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: str
         const got = await read(imapWayIn.parse(JSON.parse(unseal(deps.connectionKey, workspaceId, box.sealed))), ofBox.map((l) => l.providerId))
         for (const l of ofBox) if (got.get(l.providerId)) texts.set(l.id, got.get(l.providerId)!)
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof GoogleBusy) throw err
       // The mailbox could not be opened just now: those people are looked at by subject and excerpt.
     }
   }

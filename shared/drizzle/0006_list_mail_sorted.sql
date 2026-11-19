@@ -1,0 +1,1 @@
+ALTER TABLE "ws"."list_mail" ADD COLUMN "sorted" boolean DEFAULT false NOT NULL;

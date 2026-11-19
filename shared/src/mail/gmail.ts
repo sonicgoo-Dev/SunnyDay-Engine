@@ -5,18 +5,85 @@
 // Build 4 adds reading one year's window for List Builder, and the text of
 // a single message for its AI to read once; the text is never stored.
 import { z } from 'zod'
-import { GOOGLE_TIMEOUT_MS, GoogleError, ReconnectNeeded, type Fetch } from './google-token.js'
+import { GOOGLE_TIMEOUT_MS, GoogleBusy, GoogleError, ReconnectNeeded, type Fetch } from './google-token.js'
 import { htmlToText, tidyMailText } from './text.js'
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
+/**
+ * How fast one mailbox is read. Google allows about 50 requests a second
+ * for one mailbox and refuses the rest. SunnyDay stays far below that, so
+ * a long read (List Builder's year) and the everyday read can both run
+ * without ever meeting the limit. Learned on Nov 18, 2026, when the first
+ * real List Builder run read at the limit and was refused.
+ */
+export const GMAIL_PER_SECOND = 15
+/** After a "slow down" answer, one request is tried again after each of these waits (seconds), then the job waits instead. */
+const SLOW_DOWN_WAITS = [2, 4, 8, 16]
+
+/** Swappable so tests do not really wait. */
+export const gmailClock = { now: () => Date.now(), sleep: (ms: number) => new Promise<void>((done) => setTimeout(done, ms)) }
+
+// The next moment each mailbox may be asked. One worker process reads all
+// mail, so this one table is the whole pace. A pass is good for an hour and
+// each job fetches its own, so the pace is kept per mailbox, not per pass:
+// callers say which mailbox a pass belongs to (paceAs).
+const nextSlot = new Map<string, number>()
+const mailboxOf = new Map<string, string>()
+/** Says which mailbox a pass belongs to, so every job reading that mailbox shares one pace. */
+export function paceAs(accessToken: string, mailboxId: string): void {
+  if (mailboxOf.size > 500) mailboxOf.clear()
+  mailboxOf.set(accessToken, mailboxId)
+}
+const paceKey = (accessToken: string) => mailboxOf.get(accessToken) ?? accessToken
+async function takeTurn(accessToken: string): Promise<void> {
+  const key = paceKey(accessToken)
+  const now = gmailClock.now()
+  if (nextSlot.size > 500) for (const [k, at] of nextSlot) if (at < now - 60_000) nextSlot.delete(k)
+  const at = Math.max(now, nextSlot.get(key) ?? 0)
+  nextSlot.set(key, at + 1000 / GMAIL_PER_SECOND)
+  if (at > now) await gmailClock.sleep(at - now)
+}
+/** Everyone reading this mailbox waits at least this long (used after a "slow down" answer). */
+function holdEveryone(accessToken: string, ms: number): void {
+  const key = paceKey(accessToken)
+  nextSlot.set(key, Math.max(nextSlot.get(key) ?? 0, gmailClock.now() + ms))
+}
+
+/** Google's own short code for a refusal, e.g. "rateLimitExceeded". Only ever a code word: letters and underscores. */
+async function refusalReason(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { error?: { status?: unknown; errors?: Array<{ reason?: unknown }> } }
+    const reason = body.error?.errors?.[0]?.reason ?? body.error?.status
+    return typeof reason === 'string' && /^[A-Za-z_]{1,40}$/.test(reason) ? reason : null
+  } catch {
+    return null
+  }
+}
+
+/** "Slow down": too many requests. The mailbox is fine; SunnyDay only has to wait. */
+const SLOW_DOWN_REASONS = ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded', 'RESOURCE_EXHAUSTED']
+const slowDown = (status: number, reason: string | null) => status === 429 || (status === 403 && reason !== null && SLOW_DOWN_REASONS.includes(reason))
+/** Google's own trouble (5xx): worth a few tries here, but if it goes on it is an ordinary failure, counted like any other. */
+const worthWaitingFor = (status: number, reason: string | null) => slowDown(status, reason) || status >= 500
+
 async function gmailGet(doFetch: Fetch, accessToken: string, path: string, query: Record<string, string | string[]> = {}): Promise<unknown> {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(query)) for (const one of Array.isArray(v) ? v : [v]) q.append(k, one)
-  const res = await doFetch(`${API}${path}${q.size ? `?${q}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
-  if (res.status === 401) throw new ReconnectNeeded()
-  if (!res.ok) throw new GoogleError('reading the mailbox', res.status)
-  return res.json()
+  for (let tries = 0; ; tries++) {
+    await takeTurn(accessToken)
+    const res = await doFetch(`${API}${path}${q.size ? `?${q}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
+    if (res.ok) return res.json()
+    if (res.status === 401) throw new ReconnectNeeded()
+    const reason = await refusalReason(res)
+    if (!worthWaitingFor(res.status, reason)) throw new GoogleError('reading the mailbox', res.status, reason)
+    const wait = SLOW_DOWN_WAITS[tries]
+    if (wait === undefined) throw slowDown(res.status, reason) ? new GoogleBusy('reading the mailbox', res.status, reason) : new GoogleError('reading the mailbox', res.status, reason)
+    // Google may say how long to wait; never longer than half a minute here (longer is the job's wait, not this request's).
+    const asked = Number(res.headers.get('retry-after'))
+    const ms = Math.min(30_000, Math.max(wait * 1000, Number.isFinite(asked) && asked > 0 ? asked * 1000 : 0))
+    holdEveryone(accessToken, ms)
+  }
 }
 
 const profile = z.object({ emailAddress: z.string().email() })
