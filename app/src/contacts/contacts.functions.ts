@@ -65,7 +65,7 @@ export const addNoteFn = createServerFn({ method: 'POST' })
 export const joinHouseholdFn = createServerFn({ method: 'POST' })
   .middleware([signedInOnly])
   .validator(householdInput)
-  .handler(({ context, data }) => join(context.me, data.contactId, data.otherId))
+  .handler(({ context, data }) => join(context.me, data.contactId, data.otherId, data.confirmMerge === true))
 
 export const leaveHouseholdFn = createServerFn({ method: 'POST' })
   .middleware([signedInOnly])

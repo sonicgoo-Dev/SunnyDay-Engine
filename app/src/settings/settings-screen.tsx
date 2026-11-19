@@ -14,7 +14,7 @@ type Mailbox = SettingsView['mailboxes'][number]
 export const MAIL_NOTES = {
   connected: { good: true, text: 'Gmail is connected. SunnyDay is reading it for the first time now.' },
   cancelled: { good: false, text: 'Gmail was not connected. Nothing has changed.' },
-  permission: { good: false, text: 'Gmail was not connected, because a box on Google’s screen was left unticked. SunnyDay needs every box ticked. Tap Connect Gmail to try again.' },
+  permission: { good: false, text: 'Gmail was not connected, because a mail box on Google’s screen was left unticked. SunnyDay needs the mail boxes ticked. Tap Connect Gmail to try again.' },
   second: { good: false, text: 'A different Gmail account is already connected. Disconnect it first to switch accounts.' },
   not_ready: { good: false, text: 'Mail connections are not switched on yet.' },
   failed: { good: false, text: 'Gmail was not connected. Please try again.' },
@@ -35,7 +35,10 @@ export function SettingsScreen({ view, note }: { view: SettingsView; note?: Mail
         {!view.mailReady && <Notice>Mail connections are being switched on. Check back shortly.</Notice>}
         <Part title="Your main mailbox" about="Gmail. The one mailbox SunnyDay will send from, once you approve a message.">
           {main ? (
-            <Connected box={main} canChange={view.canChange} reconnect={<ConnectGmail label="Connect again" />} />
+            <>
+              <Connected box={main} canChange={view.canChange} reconnect={<ConnectGmail label="Connect again" />} />
+              {main.status === 'connected' && !main.canReadContacts && view.canChange && view.mailReady && <ConnectGmail label="Include my Google Contacts" />}
+            </>
           ) : view.canChange && view.mailReady ? (
             <ConnectGmail label="Connect Gmail" />
           ) : (
@@ -144,6 +147,13 @@ function Connected({ box, canChange, reconnect }: { box: Mailbox; canChange: boo
               Connected. <LastRead iso={box.lastReadAt} />
             </p>
             {box.lastProblem && <p className="text-sm text-warning-foreground">{box.lastProblem}</p>}
+            {box.kind === 'gmail' && (
+              <p className="text-sm text-muted-foreground">
+                {box.canReadContacts
+                  ? 'Google Contacts: SunnyDay may read them, for Build my list. It can never change them.'
+                  : 'Google Contacts: not included yet. To include them in Build my list, tap the button below; Google will show one extra line about contacts. Your mail carries on being read as it is now.'}
+              </p>
+            )}
           </>
         ) : (
           <p className="text-sm text-warning-foreground">Needs reconnecting. {box.lastProblem}</p>

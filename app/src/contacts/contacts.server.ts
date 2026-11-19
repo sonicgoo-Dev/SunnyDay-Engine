@@ -4,6 +4,7 @@
 import {
   ContactNotFound,
   ContactRefused,
+  HouseholdsWouldMerge,
   addContact,
   addCustomField,
   addFamily,
@@ -84,7 +85,23 @@ export async function stage(me: Me, m: { contactId: string; side: 'buyer' | 'sel
 }
 
 export const note = (me: Me, contactId: string, text: string) => done(() => addNote(getDb(), me.workspaceId, contactId, text, me.userId))
-export const join = (me: Me, contactId: string, otherId: string) => done(() => joinHousehold(getDb(), me.workspaceId, contactId, otherId, me.userId))
+const namesOf = (names: string[]) => (names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`)
+
+/** Linking two people who each already have a household asks first: the two households would become one. */
+export async function join(me: Me, contactId: string, otherId: string, confirmMerge = false): Promise<Done | { ok: false; message: string; askMerge: true }> {
+  try {
+    await joinHousehold(getDb(), me.workspaceId, contactId, otherId, me.userId, confirmMerge)
+    return { ok: true }
+  } catch (err) {
+    if (err instanceof HouseholdsWouldMerge) {
+      const others = err.others.length ? ` That also brings in ${namesOf(err.others)}.` : ''
+      return { ok: false, askMerge: true, message: `Both of them already have a household. Linking them makes the two households one, with everyone and all family in it.${others}` }
+    }
+    if (err instanceof ContactNotFound) return { ok: false, message: GONE }
+    if (err instanceof ContactRefused) return { ok: false, message: err.message }
+    throw err
+  }
+}
 export const leave = (me: Me, contactId: string) => done(() => leaveHousehold(getDb(), me.workspaceId, contactId, me.userId))
 export const family = (me: Me, contactId: string, f: { name: string; relation: string; birthday: string | null }) =>
   done(() => addFamily(getDb(), me.workspaceId, contactId, f, me.userId))

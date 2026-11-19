@@ -320,7 +320,7 @@ function says(e: Item): { title: string; detail?: string | null } {
   const b = e.body
   switch (e.kind) {
     case 'added':
-      return { title: 'Added to your contacts', detail: b.text ? `Found you through: ${b.text}` : null }
+      return { title: b.via === 'list_builder' ? 'Added from List Builder, after your Yes' : 'Added to your contacts', detail: b.text ? `Found you through: ${b.text}` : null }
     case 'stage':
       return b.to ? { title: `${b.side === 'seller' ? 'Seller' : 'Buyer'} stage: ${b.from ? `${b.from} to ${b.to}` : b.to}` } : { title: b.text ?? 'Stage changed' }
     case 'note':

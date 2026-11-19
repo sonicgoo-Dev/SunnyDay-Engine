@@ -21,7 +21,7 @@ export const usualServerFor = (address: string) => {
 export type SettingsView = {
   canChange: boolean
   mailReady: boolean
-  mailboxes: Array<{ id: string; kind: 'gmail' | 'imap'; role: 'main' | 'read_only'; address: string; status: 'connected' | 'needs_reconnect'; lastReadAt: string | null; lastProblem: string | null }>
+  mailboxes: Array<{ id: string; kind: 'gmail' | 'imap'; role: 'main' | 'read_only'; address: string; status: 'connected' | 'needs_reconnect'; lastReadAt: string | null; lastProblem: string | null; canReadContacts: boolean }>
   ai: { limitDollars: number; spentDollars: number; paused: boolean }
 }
 

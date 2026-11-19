@@ -25,6 +25,7 @@ import { Route as InFrameSettingsRouteImport } from './routes/_in/_frame/setting
 import { Route as InFrameWebsiteRouteImport } from './routes/_in/_frame/website'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as InFrameContactsContactIdRouteImport } from './routes/_in/_frame/contacts_.$contactId'
+import { Route as InFrameContactsBuildRouteImport } from './routes/_in/_frame/contacts_.build'
 import { Route as InFrameContactsNewRouteImport } from './routes/_in/_frame/contacts_.new'
 import { Route as ApiMailGoogleCallbackRouteImport } from './routes/api/mail/google/callback'
 import { Route as ApiMailGoogleStartRouteImport } from './routes/api/mail/google/start'
@@ -108,6 +109,11 @@ const InFrameContactsContactIdRoute =
     path: '/contacts/$contactId',
     getParentRoute: () => InFrameRoute,
   } as any)
+const InFrameContactsBuildRoute = InFrameContactsBuildRouteImport.update({
+  id: '/contacts_/build',
+  path: '/contacts/build',
+  getParentRoute: () => InFrameRoute,
+} as any)
 const InFrameContactsNewRoute = InFrameContactsNewRouteImport.update({
   id: '/contacts_/new',
   path: '/contacts/new',
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/contacts/$contactId': typeof InFrameContactsContactIdRoute
+  '/contacts/build': typeof InFrameContactsBuildRoute
   '/contacts/new': typeof InFrameContactsNewRoute
   '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
   '/api/mail/google/start': typeof ApiMailGoogleStartRoute
@@ -158,6 +165,7 @@ export interface FileRoutesByTo {
   '/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/contacts/$contactId': typeof InFrameContactsContactIdRoute
+  '/contacts/build': typeof InFrameContactsBuildRoute
   '/contacts/new': typeof InFrameContactsNewRoute
   '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
   '/api/mail/google/start': typeof ApiMailGoogleStartRoute
@@ -180,6 +188,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_in/_frame/': typeof InFrameIndexRoute
   '/_in/_frame/contacts_/$contactId': typeof InFrameContactsContactIdRoute
+  '/_in/_frame/contacts_/build': typeof InFrameContactsBuildRoute
   '/_in/_frame/contacts_/new': typeof InFrameContactsNewRoute
   '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
   '/api/mail/google/start': typeof ApiMailGoogleStartRoute
@@ -201,6 +210,7 @@ export interface FileRouteTypes {
     | '/website'
     | '/api/auth/$'
     | '/contacts/$contactId'
+    | '/contacts/build'
     | '/contacts/new'
     | '/api/mail/google/callback'
     | '/api/mail/google/start'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
     | '/website'
     | '/api/auth/$'
     | '/contacts/$contactId'
+    | '/contacts/build'
     | '/contacts/new'
     | '/api/mail/google/callback'
     | '/api/mail/google/start'
@@ -241,6 +252,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_in/_frame/'
     | '/_in/_frame/contacts_/$contactId'
+    | '/_in/_frame/contacts_/build'
     | '/_in/_frame/contacts_/new'
     | '/api/mail/google/callback'
     | '/api/mail/google/start'
@@ -370,6 +382,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InFrameContactsContactIdRouteImport
       parentRoute: typeof InFrameRoute
     }
+    '/_in/_frame/contacts_/build': {
+      id: '/_in/_frame/contacts_/build'
+      path: '/contacts/build'
+      fullPath: '/contacts/build'
+      preLoaderRoute: typeof InFrameContactsBuildRouteImport
+      parentRoute: typeof InFrameRoute
+    }
     '/_in/_frame/contacts_/new': {
       id: '/_in/_frame/contacts_/new'
       path: '/contacts/new'
@@ -405,6 +424,7 @@ interface InFrameRouteChildren {
   InFrameWebsiteRoute: typeof InFrameWebsiteRoute
   InFrameIndexRoute: typeof InFrameIndexRoute
   InFrameContactsContactIdRoute: typeof InFrameContactsContactIdRoute
+  InFrameContactsBuildRoute: typeof InFrameContactsBuildRoute
   InFrameContactsNewRoute: typeof InFrameContactsNewRoute
 }
 
@@ -419,6 +439,7 @@ const InFrameRouteChildren: InFrameRouteChildren = {
   InFrameWebsiteRoute: InFrameWebsiteRoute,
   InFrameIndexRoute: InFrameIndexRoute,
   InFrameContactsContactIdRoute: InFrameContactsContactIdRoute,
+  InFrameContactsBuildRoute: InFrameContactsBuildRoute,
   InFrameContactsNewRoute: InFrameContactsNewRoute,
 }
 

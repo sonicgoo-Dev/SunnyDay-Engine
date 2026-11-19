@@ -87,7 +87,7 @@ export async function finishGmailConnect(request: Request, doFetch: Fetch = fetc
     const client = { clientId: s.SIGNIN_GOOGLE_CLIENT_ID, clientSecret: s.SIGNIN_GOOGLE_CLIENT_SECRET }
     const tokens = await exchangeCode(doFetch, client, redirectUri(), code)
     const address = await mailboxAddress(doFetch, tokens.accessToken)
-    await saveGmailConnection(getDb(), s.CONNECTION_KEY, me.workspaceId, { address, refreshToken: tokens.refreshToken })
+    await saveGmailConnection(getDb(), s.CONNECTION_KEY, me.workspaceId, { address, refreshToken: tokens.refreshToken, canReadContacts: tokens.canReadContacts })
     return back('connected', clear)
   } catch (err) {
     if (err instanceof MissingPermission) return back('permission', clear)

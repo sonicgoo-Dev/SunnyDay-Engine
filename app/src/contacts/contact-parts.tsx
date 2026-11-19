@@ -43,7 +43,7 @@ export function Card({ title, onEdit, editing, children }: { title: string; onEd
 }
 
 /** Label and value, or nothing at all when the value is empty. */
-export function Detail({ label, children }: { label: string; children: ReactNode }) {
+export function Detail({ label, children }: { label: ReactNode; children: ReactNode }) {
   if (children === null || children === undefined || children === '' || children === false) return null
   return (
     <div className="flex flex-col">
@@ -51,6 +51,14 @@ export function Detail({ label, children }: { label: string; children: ReactNode
       <span className="break-words whitespace-pre-line">{children}</span>
     </div>
   )
+}
+
+/** " · from an email on Mar 3, 2025" beside a detail List Builder found. Nothing for a detail she typed herself. */
+function CameFrom({ page, kind, value }: { page: Page; kind: string; value: string | null }) {
+  if (!value) return null
+  const same = (a: string, b: string) => (kind === 'phone' ? a.replace(/\D/g, '').slice(-10) === b.replace(/\D/g, '').slice(-10) : a.trim().toLowerCase() === b.trim().toLowerCase())
+  const found = page.sources.find((s) => s.kind === kind && same(s.value, value))
+  return found ? <> · {found.line}</> : null
 }
 
 export const Nothing = ({ children = 'Nothing yet.' }: { children?: ReactNode }) => <p className="text-sm text-muted-foreground">{children}</p>
@@ -157,7 +165,10 @@ export function WaysPart({ page, emailFrom }: { page: Page; emailFrom: string | 
         <div className="flex flex-col gap-3">
           {page.ways.map((w) => (
             <div key={w.id} className="flex flex-col">
-              <span className="text-sm text-muted-foreground">{w.label[0]!.toUpperCase() + w.label.slice(1)}</span>
+              <span className="text-sm text-muted-foreground">
+                {w.label[0]!.toUpperCase() + w.label.slice(1)}
+                <CameFrom page={page} kind={w.kind} value={w.value} />
+              </span>
               {w.kind === 'phone' ? (
                 <a href={`tel:${phoneDigits(w.value)}`} className="break-all text-primary underline-offset-2 hover:underline">
                   {w.value}
@@ -172,8 +183,8 @@ export function WaysPart({ page, emailFrom }: { page: Page; emailFrom: string | 
               )}
             </div>
           ))}
-          <Detail label="Mailing address">{page.mailingAddress}</Detail>
-          <Detail label="Current home address">{page.homeAddress}</Detail>
+          <Detail label={<>Mailing address<CameFrom page={page} kind="address" value={page.mailingAddress} /></>}>{page.mailingAddress}</Detail>
+          <Detail label={<>Current home address<CameFrom page={page} kind="address" value={page.homeAddress} /></>}>{page.homeAddress}</Detail>
         </div>
       )}
     </Card>
@@ -239,6 +250,8 @@ export function HouseholdPart({ page }: { page: Page }) {
   const { busy, problem, run } = useSave()
   const [mode, setMode] = useState<'none' | 'link' | 'family' | 'leave'>('none')
   const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null)
+  // Both already have a household: she is told what linking does, and it waits for her Yes.
+  const [merging, setMerging] = useState<{ id: string; fullName: string; says: string } | null>(null)
   const [fam, setFam] = useState({ name: '', relation: 'child', birthday: '' })
   const home = page.household
 
@@ -288,6 +301,22 @@ export function HouseholdPart({ page }: { page: Page }) {
         </div>
       )}
 
+      {merging && (
+        <div className="flex flex-col gap-2 rounded-md bg-warning p-3 text-warning-foreground">
+          <p className="text-sm">
+            Link {page.fullName} and {merging.fullName}? {merging.says}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={busy} onClick={async () => (await run(() => join({ data: { contactId: page.id, otherId: merging.id, confirmMerge: true } }))) && setMerging(null)}>
+              Yes, make them one household
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={() => setMerging(null)}>
+              Leave them as they are
+            </Button>
+          </div>
+        </div>
+      )}
+
       {mode === 'link' && (
         <div className="flex flex-col gap-2 rounded-md bg-muted p-3">
           <PersonPicker
@@ -296,7 +325,13 @@ export function HouseholdPart({ page }: { page: Page }) {
             except={page.id}
             hint="Someone already in your contacts. Their two pages will share one household."
             onPick={async (p) => {
-              if (await run(() => join({ data: { contactId: page.id, otherId: p.id } }))) setMode('none')
+              const linked = await run(async () => {
+                const told = await join({ data: { contactId: page.id, otherId: p.id } })
+                if (told.ok || !('askMerge' in told)) return told
+                setMerging({ id: p.id, fullName: p.fullName, says: told.message })
+                return { ok: true }
+              })
+              if (linked) setMode('none')
             }}
           />
           <Button variant="quiet" className="self-start" onClick={() => setMode('none')}>

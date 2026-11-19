@@ -4,6 +4,7 @@
 import { IconSearch } from '@tabler/icons-react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
+import { BuildCard, type Status } from '@/list/build-card'
 import { cn } from '@/lib/utils'
 import { SEARCH_LIMIT, TABS, businessRoleLabel, type Tab } from './contacts.schema'
 import type { getContacts } from './contacts.functions'
@@ -26,7 +27,7 @@ const EMPTY: Record<Tab, string> = {
   business: 'No business contacts yet: lenders, title, inspectors, other agents and referral partners.',
 }
 
-export function ContactsScreen({ rows, search }: { rows: Row[]; search: ListSearch }) {
+export function ContactsScreen({ rows, search, list }: { rows: Row[]; search: ListSearch; list: Status }) {
   const tab = search.tab ?? 'clients'
   const searching = Boolean(search.q)
   const active = rows.filter((r) => r.active)
@@ -35,6 +36,8 @@ export function ContactsScreen({ rows, search }: { rows: Row[]; search: ListSear
   return (
     <div className="flex max-w-3xl flex-col gap-5 px-4 py-8 md:px-12 md:py-12">
       <h1 className="text-3xl font-medium md:text-4xl">Contacts</h1>
+
+      {!searching && !search.away && !list.hidden && <BuildCard status={list} />}
 
       <SearchBox initial={search.q ?? ''} tab={tab} />
 
@@ -77,6 +80,7 @@ export function ContactsScreen({ rows, search }: { rows: Row[]; search: ListSear
           <Link to="/contacts" search={{ away: true }} className="self-start text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground">
             People you have put away
           </Link>
+          {list.hidden && list.canChange && <BuildCard status={list} />}
         </>
       )}
     </div>
