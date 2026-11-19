@@ -17,7 +17,7 @@ import { PeopleBook, takeInPeople } from '../src/list/people.js'
 import { cardNeeds, clientStagesFor, defaultsFor, looksAutomated, minutesFor, phoneKey, sourceLine, stageIn, withoutPhotos, yesInput, type CardView } from '../src/list/rules.js'
 import { GOOGLE_PART, ListRefused, readRunPage, readRunPeople, startYear, type ListDeps } from '../src/list/runs.js'
 import { isMachine, recipientsIn, sortRun } from '../src/list/sort.js'
-import { holdToTheMail, pickMessages, resumePausedRuns, thinkBatch } from '../src/list/think.js'
+import { betterName, holdToTheMail, pickMessages, resumePausedRuns, thinkBatch } from '../src/list/think.js'
 import { readContactFile } from '../src/list/vcard.js'
 import type { ImapTextReader, ImapWindowReader } from '../src/mail/imap.js'
 import type { Fetch } from '../src/mail/google-token.js'
@@ -273,6 +273,26 @@ describe('the rules', () => {
     expect(held.details.map((d) => d.value)).toEqual(['360-555-0142', '12 Cedar Lane, Sequim, WA 98382'])
     expect(held.details[0]!.source).toEqual({ from: 'email', at: '2025-03-03', subject: 'Hi' })
     expect(held.proposal.why).toBe('Wow. A lead.')
+  })
+
+  it('a first name alone is filled out from the person\'s own signature, and never swapped for someone else', () => {
+    const messages = [
+      { n: 1, date: '2025-03-03', fromHer: false, subject: 'Hi', text: 'Could we see the house Friday?\nPat Buyer' },
+      { n: 2, date: '2025-03-04', fromHer: true, subject: 'Re: Hi', text: 'Yes. I will bring Pat Seller from the other side.\nAmy Agent' },
+    ]
+    const full = holdToTheMail({ ...UNSURE, kind: 'lead', side: 'buyer', name: 'Pat Buyer' }, messages)
+    expect(full).toMatchObject({ name: 'Pat Buyer', theirName: 'Pat Buyer' })
+    expect(betterName('Pat', full.name, full.theirName)).toBe('Pat Buyer')
+    expect(betterName('pat', full.name, full.theirName)).toBe('Pat Buyer')
+    expect(betterName(null, full.name, full.theirName)).toBe('Pat Buyer')
+    // A full name she already has is kept, and so is a first name when the mail shows a different person.
+    expect(betterName('Patricia Buyer', full.name, full.theirName)).toBe('Patricia Buyer')
+    expect(betterName('Sam', full.name, full.theirName)).toBe('Sam')
+    expect(betterName('Pa', full.name, full.theirName)).toBe('Pa')
+    // A fuller name found only in her own words is not theirs to take.
+    const hers = holdToTheMail({ ...UNSURE, kind: 'lead', side: 'buyer', name: 'Pat Seller' }, messages)
+    expect(hers).toMatchObject({ name: 'Pat Seller', theirName: null })
+    expect(betterName('Pat', hers.name, hers.theirName)).toBe('Pat')
   })
 
   it('her own signature is never taken for the person\'s details, and a name, company or referrer must be in the words', () => {

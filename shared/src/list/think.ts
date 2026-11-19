@@ -49,7 +49,7 @@ const day = (d: Date) => d.toISOString().slice(0, 10)
  * a made-up detail never reaches a card. Every other value is checked for
  * its kind and length.
  */
-export function holdToTheMail(out: ThinkOutput, messages: ThinkMessage[]): { proposal: ListProposal; name: string | null; details: Array<{ kind: 'phone' | 'email' | 'address' | 'partner' | 'company'; value: string; label?: string; source: { from: 'email'; at?: string; subject?: string } }> } {
+export function holdToTheMail(out: ThinkOutput, messages: ThinkMessage[]): { proposal: ListProposal; name: string | null; /** The name, only when it is in the person's own words (their signature), not just in hers. */ theirName: string | null; details: Array<{ kind: 'phone' | 'email' | 'address' | 'partner' | 'company'; value: string; label?: string; source: { from: 'email'; at?: string; subject?: string } }> } {
   // Compared word by word, so a signature broken over several lines still matches.
   const plain = (s: string) => s.toLowerCase().replace(/[^a-z0-9@]+/g, ' ').trim()
   const textOf = (ms: ThinkMessage[]) => ms.map((m) => `${m.subject}\n${m.text}`).join('\n')
@@ -85,7 +85,21 @@ export function holdToTheMail(out: ThinkOutput, messages: ThinkMessage[]): { pro
     foundBy: person && (FOUND_BY_KEYS as readonly string[]).includes(out.foundBy ?? '') ? out.foundBy : null,
     foundByOther: person && out.foundBy === 'referral' ? said(out.foundByOther) : null,
   }
-  return { proposal, name: said(out.name), details }
+  const name = said(out.name)
+  return { proposal, name, theirName: name && lower.includes(` ${plain(name)} `) ? name : null, details }
+}
+
+/**
+ * The name a card shows. Mail often gives a first name alone ("Pat") while
+ * the person's own signature gives it in full ("Pat Buyer"): then the fuller
+ * one is used. Only when it starts with the name already known, so a
+ * different person's name can never replace it.
+ */
+export function betterName(have: string | null, found: string | null, theirs: string | null): string | null {
+  if (!have) return found
+  const first = have.trim()
+  if (!theirs || /\s/.test(first)) return have
+  return theirs.toLowerCase().startsWith(`${first.toLowerCase()} `) ? theirs : have
 }
 
 export type ThinkOutcome = 'more' | 'ready' | 'paused' | 'gone'
@@ -232,7 +246,8 @@ async function saveLook(deps: ListDeps, workspaceId: string, runId: string, p: P
       .set({
         lookRunId: null,
         details: now.state === 'no' ? [] : row.details,
-        name: now.name ?? held.name,
+        // Someone already in Contacts, or already answered, keeps the name she knows them by.
+        name: now.contactId !== null || settled ? (now.name ?? held.name) : betterName(now.name, held.name, held.theirName),
         updatedAt: new Date(),
         // Someone she already answered keeps her answer: only new details are added.
         ...(settled ? {} : held.proposal.kind === 'nobody' ? { bucket: 'not_contact' as const, proposal: held.proposal } : { state: 'proposed' as const, proposal: held.proposal }),

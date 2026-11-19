@@ -29,7 +29,7 @@ export type ThinkInput = {
 }
 
 export const thinkOutput = z.object({
-  name: z.string().nullable().describe("The person's full name if the messages show it, else null."),
+  name: z.string().nullable().describe("The person's full name (first and last) if the messages show it, for example in their signature, else null."),
   kind: z.enum(['past_client', 'client', 'lead', 'business', 'nobody', 'unsure']),
   side: z.enum(['buyer', 'seller', 'both']).nullable().describe('For a client or lead: buying, selling or both. Null if not shown, or for a business contact.'),
   businessRole: z.enum(['lender', 'title', 'inspector', 'agent', 'referral_partner', 'other']).nullable(),
