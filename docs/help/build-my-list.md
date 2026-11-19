@@ -9,6 +9,8 @@ It is the card at the top of **Contacts**.
 
 1. Tap **Start with the last 12 months**. SunnyDay reads one year of mail.
    This takes a while; you can close SunnyDay and come back.
+   It reads every mailbox you have connected: what you received and what
+   you sent, from your main mailbox and from your second one.
 2. It sets aside newsletters, notices and other machine mail by itself.
 3. For each likely person, it reads a few of your messages with them and
    suggests what they are to you: past client, client now, lead or

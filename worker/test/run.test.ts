@@ -139,6 +139,7 @@ describe('the worker and List Builder', () => {
   let c = ''
   const SECRET_WORDS = 'We may list the house in spring'
   const imapWindow: ImapWindowReader = async (_w, w) => {
+    if (w.folder === 'sent') return { lastUid: w.afterUid, more: false, messages: [] }
     const uids = [1, 2, 3].filter((u) => u > w.afterUid).slice(0, 2)
     return {
       lastUid: uids.at(-1) ?? w.afterUid,

@@ -168,9 +168,12 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
     } else {
       const read = deps.imapWindow ?? readImapWindow
       const wayIn = imapWayIn.parse(JSON.parse(unseal(deps.connectionKey, workspaceId, box.sealed)))
-      const got = await read(wayIn, { since: run.fromAt, before: run.toAt, afterUid: part.afterUid ?? 0, cap: IMAP_PER_TURN })
+      // First what she received, then what she sent from this address: for years it was her main work mailbox.
+      const folder = part.inboxDone ? 'sent' : 'inbox'
+      const got = await read(wayIn, { since: run.fromAt, before: run.toAt, afterUid: (folder === 'sent' ? part.sentAfterUid : part.afterUid) ?? 0, cap: IMAP_PER_TURN, folder })
       lines = got.messages
-      next = got.more ? { afterUid: got.lastUid } : { afterUid: got.lastUid, done: true }
+      if (folder === 'inbox') next = got.more ? { afterUid: got.lastUid } : { afterUid: got.lastUid, inboxDone: true }
+      else next = got.more ? { sentAfterUid: got.lastUid } : { sentAfterUid: got.lastUid, done: true }
     }
   } catch (err) {
     if (!(err instanceof ReconnectNeeded) && !(err instanceof ImapSignInRefused)) throw err

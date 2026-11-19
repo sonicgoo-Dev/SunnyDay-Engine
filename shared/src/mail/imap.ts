@@ -1,8 +1,9 @@
 // Reading a second mailbox that is not Gmail (Amy's olypen address) by
 // signing in to its mail server. Rule 3: such a mailbox is only ever read,
-// and nothing is ever sent from it. Rule 4: it is never changed. The inbox
-// is opened in the server's own read-only mode in ONE place (openInbox), so
-// not even "read" marks can change whatever is asked for. This file holds
+// and nothing is ever sent from it. Rule 4: it is never changed. A folder
+// (the inbox, or for List Builder the sent folder) is opened in the server's
+// own read-only mode in ONE place (openFolder), so not even "read" marks can
+// change whatever is asked for. This file holds
 // no call that marks, moves, copies, adds or deletes; a test fails if one
 // appears. Build 4 adds reading a window of time for List Builder, and the
 // text of chosen messages for its AI to read once; the text is never stored.
@@ -46,8 +47,25 @@ export type ImapReader = (wayIn: ImapWayIn, cursor: ImapCursor, opts: { firstRea
 
 const short = (s: string | undefined | null, max: number) => (s ? s.slice(0, max) : null)
 
-/** Signs in and opens the inbox read only. The only place a mailbox is opened. */
+/** The two folders SunnyDay ever looks in: what she received, and (List Builder only) what she sent. */
+export type ImapFolder = 'inbox' | 'sent'
+
+/** What mail programs call the sent folder when the server does not mark it. */
+const SENT_NAMES = /^(sent|sent items|sent messages|sent mail|sent-mail)$/i
+
+/** Where the sent folder is on this server, or null when it keeps none. Only asks for the list of folders. */
+async function sentPathOf(client: ImapFlow): Promise<string | null> {
+  const folders = await client.list()
+  const marked = folders.find((f) => f.specialUse === '\\Sent')
+  return (marked ?? folders.find((f) => SENT_NAMES.test(f.name)))?.path ?? null
+}
+
 async function openInbox(wayIn: ImapWayIn) {
+  return (await openFolder(wayIn, 'inbox'))!
+}
+
+/** Signs in and opens one folder read only. The only place a mailbox is opened. Null when there is no sent folder to open. */
+async function openFolder(wayIn: ImapWayIn, folder: ImapFolder) {
   const client = new ImapFlow({
     host: wayIn.host,
     port: wayIn.port,
@@ -70,7 +88,12 @@ async function openInbox(wayIn: ImapWayIn) {
     throw new ImapUnreachable()
   }
   try {
-    const box = await client.mailboxOpen('INBOX', { readOnly: true })
+    const path = folder === 'inbox' ? 'INBOX' : await sentPathOf(client)
+    if (path === null) {
+      await client.logout().catch(() => {})
+      return null
+    }
+    const box = await client.mailboxOpen(path, { readOnly: true })
     return { client, box, uidValidity: String(box.uidValidity) }
   } catch (err) {
     await client.logout().catch(() => {})
@@ -78,16 +101,22 @@ async function openInbox(wayIn: ImapWayIn) {
   }
 }
 
-function summaryOf(uidValidity: string, m: FetchMessageObject): MessageSummary {
+/** A sent message's id says so, because the two folders number their messages separately. */
+const SENT_MARK = 'sent:'
+
+function summaryOf(uidValidity: string, m: FetchMessageObject, folder: ImapFolder = 'inbox'): MessageSummary {
   const from = m.envelope?.from?.[0]
-  const when = m.internalDate ?? m.envelope?.date
+  const sent = folder === 'sent'
+  // What she sent is dated by when she wrote it; what she received, by when it arrived.
+  const when = sent ? (m.envelope?.date ?? m.internalDate) : (m.internalDate ?? m.envelope?.date)
+  const to = [...(m.envelope?.to ?? []), ...(sent ? (m.envelope?.cc ?? []) : [])]
   return {
-    providerId: `${uidValidity}:${m.uid}`,
+    providerId: `${sent ? SENT_MARK : ''}${uidValidity}:${m.uid}`,
     threadId: null,
-    direction: 'in',
+    direction: sent ? 'out' : 'in',
     fromName: short(from?.name, 200),
     fromEmail: short(from?.address?.toLowerCase(), 320),
-    toLine: short((m.envelope?.to ?? []).map((t) => t.address).filter(Boolean).join(', '), 500),
+    toLine: short(to.map((t) => t.address).filter(Boolean).join(', '), 500),
     subject: short(m.envelope?.subject, 300),
     // Envelopes only: the message text is never kept.
     excerpt: null,
@@ -120,12 +149,15 @@ export const readImapInbox: ImapReader = async (wayIn, cursor, opts) => {
 
 export type ImapWindowRead = { messages: Array<{ summary: MessageSummary; bulk: boolean }>; lastUid: number; more: boolean }
 /** Reads the envelopes of a window of time, a batch at a time, oldest number first. Swappable for tests. */
-export type ImapWindowReader = (wayIn: ImapWayIn, w: { since: Date; before: Date; afterUid: number; cap: number }) => Promise<ImapWindowRead>
+export type ImapWindowReader = (wayIn: ImapWayIn, w: { since: Date; before: Date; afterUid: number; cap: number; folder: ImapFolder }) => Promise<ImapWindowRead>
 
 const DAY = 86_400_000
 
 export const readImapWindow: ImapWindowReader = async (wayIn, w) => {
-  const { client, uidValidity } = await openInbox(wayIn)
+  const opened = await openFolder(wayIn, w.folder)
+  // This mail server keeps no sent folder: nothing to read there.
+  if (!opened) return { messages: [], lastUid: w.afterUid, more: false }
+  const { client, uidValidity } = opened
   try {
     // Mail servers search by whole days; the exact moments are checked below.
     const found = await client.search({ since: new Date(w.since.getTime() - DAY), before: new Date(w.before.getTime() + DAY) }, { uid: true })
@@ -135,7 +167,7 @@ export const readImapWindow: ImapWindowReader = async (wayIn, w) => {
     if (batch.length) {
       const asked = { uid: true, envelope: true, internalDate: true, headers: ['list-unsubscribe', 'list-id', 'precedence', 'auto-submitted'] }
       for await (const m of client.fetch(batch, asked, { uid: true })) {
-        const summary = summaryOf(uidValidity, m)
+        const summary = summaryOf(uidValidity, m, w.folder)
         if (summary.sentAt < w.since || summary.sentAt >= w.before) continue
         const top = m.headers ? m.headers.toString('utf8') : ''
         const bulk = /^(list-unsubscribe|list-id):/im.test(top) || /^precedence:\s*(bulk|list|junk)/im.test(top) || /^auto-submitted:\s*(?!no\b)\S/im.test(top)
@@ -167,17 +199,26 @@ function findText(node: Shape | undefined, type: string, depth = 0): string | nu
 const TEXT_CEILING = 60_000
 
 /**
- * Reads the words of the given messages for List Builder's AI. The inbox is
+ * Reads the words of the given messages for List Builder's AI. Each folder is
  * open read only, so reading marks nothing as read. Attachments are never
  * asked for. Messages the server has since renumbered are quietly left out.
  */
 export const readImapTexts: ImapTextReader = async (wayIn, providerIds, max = 2000) => {
   const out = new Map<string, string>()
-  if (providerIds.length === 0) return out
-  const { client, uidValidity } = await openInbox(wayIn)
+  for (const folder of ['inbox', 'sent'] as const) {
+    const ids = providerIds.filter((id) => id.startsWith(SENT_MARK) === (folder === 'sent'))
+    if (ids.length) await readTextsIn(wayIn, folder, ids, max, out)
+  }
+  return out
+}
+
+async function readTextsIn(wayIn: ImapWayIn, folder: ImapFolder, providerIds: string[], max: number, out: Map<string, string>): Promise<void> {
+  const opened = await openFolder(wayIn, folder)
+  if (!opened) return
+  const { client, uidValidity } = opened
   try {
     for (const providerId of providerIds) {
-      const [validity, uidText] = providerId.split(':')
+      const [validity, uidText] = providerId.slice(folder === 'sent' ? SENT_MARK.length : 0).split(':')
       const uid = Number(uidText)
       if (validity !== uidValidity || !Number.isInteger(uid)) continue
       const m = await client.fetchOne(String(uid), { uid: true, bodyStructure: true }, { uid: true })
@@ -192,7 +233,6 @@ export const readImapTexts: ImapTextReader = async (wayIn, providerIds, max = 20
       const text = Buffer.concat(chunks).toString('utf8')
       out.set(providerId, tidyMailText(plain ? text : htmlToText(text), max))
     }
-    return out
   } finally {
     await client.logout().catch(() => {})
   }

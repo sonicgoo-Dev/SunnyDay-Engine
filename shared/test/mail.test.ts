@@ -266,11 +266,14 @@ describe('rule 4, held by reading the code itself', () => {
     expect(gmail.match(/doFetch\(/g)).toHaveLength(1)
   })
 
-  it('the second-mailbox reader opens the inbox read only, in one place, and holds no call that changes it', () => {
+  it('the second-mailbox reader opens a folder read only, in one place, and holds no call that changes it', () => {
     const imap = code('imap.ts')
     // Every reader goes through the one opening, and that opening is read only: the server itself then refuses any change, "read" marks included.
     expect(imap.match(/mailboxOpen\(/g)).toHaveLength(1)
-    expect(imap).toContain("mailboxOpen('INBOX', { readOnly: true })")
+    expect(imap).toContain('mailboxOpen(path, { readOnly: true })')
+    // Only two folders are ever opened: the inbox, and the sent folder (for List Builder, Eric, Nov 18, 2026).
+    expect(imap).toContain("const path = folder === 'inbox' ? 'INBOX' : await sentPathOf(client)")
+    expect(imap).toContain("export type ImapFolder = 'inbox' | 'sent'")
     expect(imap.match(/new ImapFlow\(/g)).toHaveLength(1)
     expect(imap).not.toMatch(/messageFlags|messageDelete|messageMove|messageCopy|\.append\(|mailboxCreate|mailboxDelete|mailboxRename|setFlagColor|\.idle\(|mailboxSubscribe/)
     // Build 4: the text of a message may be read for List Builder's AI, but never a whole raw message, and never an attachment.

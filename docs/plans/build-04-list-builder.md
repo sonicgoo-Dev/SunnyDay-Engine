@@ -141,3 +141,12 @@ Known and left, for Eric to see:
   "from an email" when the person was also found in mail.
 - A Google contact holding two addresses that were already two separate
   people stays two cards.
+
+## Added after the review (Eric, Nov 18, 2026)
+
+The second mailbox's sent folder is read as well as its inbox, because
+the olypen address was Amy's main work mailbox for years. Read only, like
+the inbox. The sent folder is found by the server's own mark, or by its
+usual names (Sent, Sent Items, Sent Messages, Sent Mail). A server with
+no sent folder is simply read without one. To verify on the real olypen
+server: that its sent folder is found.

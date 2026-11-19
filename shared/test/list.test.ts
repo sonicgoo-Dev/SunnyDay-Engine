@@ -106,9 +106,16 @@ function pretendGoogle(opts: { contacts?: 'ok' | 'refused' } = {}) {
   return { doFetch, calls }
 }
 
+const imapFolders: string[] = []
 const imapWindow: ImapWindowReader = async (_w, w) => {
   const at = new Date(daysAgo(50))
   const inside = at >= w.since && at < w.before && w.afterUid < 1
+  imapFolders.push(w.folder)
+  // What she sent from the old address is read too, from its own folder, after the inbox.
+  if (w.folder === 'sent') {
+    const reply = { providerId: 'sent:9:1', threadId: null, direction: 'out' as const, fromName: 'Amy', fromEmail: 'amy@olypen.com', toLine: 'quinn@example.com', subject: 'Re: Thinking of selling', excerpt: null, sentAt: new Date(daysAgo(49)) }
+    return { lastUid: 1, more: false, messages: inside ? [{ bulk: false, summary: reply }] : [] }
+  }
   return {
     lastUid: 1,
     more: false,
@@ -371,7 +378,11 @@ describe('the first year', () => {
     expect(JSON.stringify(asked)).not.toContain('360-555-9999')
     // The top lines of mail with machines are gone; mail with people is kept for now.
     const kept = await inWorkspace(db, a, (tx) => tx.select().from(listMail))
-    expect(kept.map((m) => m.providerId).sort()).toEqual(['7:1', 'd1', 'd2', 'l1', 'l2', 'p1', 'p2', 'p3', 'x1'])
+    expect(kept.map((m) => m.providerId).sort()).toEqual(['7:1', 'd1', 'd2', 'l1', 'l2', 'p1', 'p2', 'p3', 'sent:9:1', 'x1'])
+    // The second mailbox: its inbox first, then what she sent from it. The AI is shown both sides of that conversation.
+    expect(imapFolders.slice(0, 2)).toEqual(['inbox', 'sent'])
+    expect(kept.find((m) => m.providerId === 'sent:9:1')).toMatchObject({ direction: 'out', toLine: 'quinn@example.com' })
+    expect(asked.find((i) => i.addresses[0] === 'quinn@example.com')).toMatchObject({ received: 1, sent: 1, messages: [{ fromHer: false }, { fromHer: true }] })
     // The message text is nowhere in the database: only the short excerpt Gmail itself gives.
     expect(JSON.stringify([kept, all])).not.toContain(JSON.stringify(gmailBox[0]!.text).slice(1, -1))
   })
@@ -386,7 +397,7 @@ describe('the first year', () => {
   it('shows her how big the job is, the surest first, each detail with where it came from', async () => {
     const status = await listStatus(db, a)
     expect(status).toMatchObject({ cards: 4, ticks: 1, notContacts: 3, yearsRead: 1, canGoBack: false, hasMailbox: true, contactsMissing: false })
-    expect(status.run).toMatchObject({ year: 1, status: 'ready', messagesRead: 12, toLook: 5, looked: 5 })
+    expect(status.run).toMatchObject({ year: 1, status: 'ready', messagesRead: 13, toLook: 5, looked: 5 })
     const page = await cards()
     expect(page.cards.map((c) => c.name)).toEqual(['Pat Buyer', 'Lee Lender', 'Dana Now', 'Quinn Old'])
     const pat = page.cards[0]!
