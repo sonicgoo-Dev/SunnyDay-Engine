@@ -1,8 +1,8 @@
 # Build 4: List Builder
 
-Status: awaiting Eric's approval (written Nov 18, 2026; changed the same
-day at Eric's request to read one year at a time, up to five). Nothing is
-built yet.
+Status: approved by Eric on Nov 18, 2026. Decision 1 is his own ("one
+year at a time up to five years"); the other twelve as suggested ("Yes
+to the rest").
 
 This is the first build with a real AI agent, and the first that reads
 years of Amy's real mail. So this brief is longer than the last three.
@@ -233,9 +233,7 @@ each at the time; none are needed to approve this brief):
 ## Done when
 
 - After her first sitting, on the last 12 months, Amy's Contacts screen
-  holds her current clients. (The Build Plan says "her real clients
-  after one sitting"; reading a year at a time changes that, so its line
-  is brought up to date when this brief is approved.)
+  holds her current clients.
 - No older year is read until she taps "Go back another year", and it
   stops at five. A test proves both.
 - Nothing was added without her tap. A test proves no contact can be

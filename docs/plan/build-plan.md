@@ -96,13 +96,15 @@ Email buttons.
 *Done when:* she adds a couple by hand in under a minute, links them as
 one household, moves a stage, and finds them by searching for their dog's name.
 
-**4. List Builder.** The agent that reads two to three years of mail and
-Google Contacts and proposes who is a client, a lead, a business contact
-or nobody. The confirm screen: Yes, No, Change, in batches. Details it
-found proposed alongside. A contact-file upload for phone-only contacts.
-*Done when:* her Contacts screen holds her real clients after one sitting
-of confirming. Nothing was added without her tap. Each detail shows where
-it came from.
+**4. List Builder.** The agent that reads her mail one year at a time
+(the last 12 months first, further back only when she asks, up to five
+years) and Google Contacts, and proposes who is a client, a lead, a
+business contact or nobody. The confirm screen: Yes, No, Change, in
+batches of ten. Details it found proposed alongside. A contact-file
+upload for phone-only contacts. (Brief approved Nov 18, 2026.)
+*Done when:* after her first sitting, on the last 12 months, her Contacts
+screen holds her current clients. No older year is read without her tap.
+Nothing was added without her tap. Each detail shows where it came from.
 
 **5. Lead capture.** Inbox reading for new inquiries on both mailboxes,
 the "New lead" alert and the "Not a lead" button that teaches the filter.

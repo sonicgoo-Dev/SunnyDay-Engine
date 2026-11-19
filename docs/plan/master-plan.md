@@ -127,7 +127,7 @@ Every person has one record, one stage and one running history, and SunnyDay bui
 **Building the first list**
 
 1. She connects Gmail and Google Contacts.
-2. An agent reads the last two to three years of mail and proposes who is a past client, an active client, a lead, another agent, a lender or title contact, or not a contact at all.
+2. An agent reads her mail one year at a time (the last 12 months first, further back only when she asks, up to five years) and proposes who is a past client, an active client, a lead, another agent, a lender or title contact, or not a contact at all.
 3. She confirms in batches: Yes, No, or Change. Nothing is added without her tap.
 4. Phone-only contacts come in through a contact file export or one at a time by voice.
 
@@ -390,7 +390,7 @@ SunnyDay uses the same tools as Oomph Engine, in its own repo, its own database 
 | Database | PostgreSQL with Drizzle | Good at reports and money sums; replaces Firebase |
 | Keeping customers apart | A workspace number on every table, enforced by the database itself | A missed filter in code still cannot leak another agent's data |
 | Background work | A job queue inside PostgreSQL, with fair turns per customer | Oomph's single one-minute clock serves one user; this serves many |
-| AI | Vercel AI SDK with Claude | Same as Oomph; cheap model for sorting, strong model for drafting |
+| AI | Claude, called with Anthropic's own library | Changed from the Vercel AI SDK on Nov 18, 2026 (Build 4 brief, decision 12); cheap model for sorting, strong model for drafting |
 | Checking inputs | Zod at every boundary | Same as Oomph |
 | Sign-in | Better Auth with Google sign-in | Same as Oomph, opened to many users |
 | Email | Gmail connection per agent for reading, drafting and sending; a read-only connection for a second mailbox | Drafts live in her own Gmail |
