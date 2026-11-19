@@ -17,6 +17,7 @@ import type { getContactPage } from './contacts.functions'
 import { Card, DatesPart, FoundPart, HouseholdPart, Nothing, OwnFieldsPart, PersonalPart, ReachPart, WantsPart, WaysPart, type Page } from './contact-parts'
 import { Initials } from './contacts-screen'
 import { useSave } from './use-save'
+import { gmailCompose } from './reach-links'
 
 type View = Awaited<ReturnType<typeof getContactPage>>
 
@@ -31,7 +32,7 @@ export function ContactPageScreen({ view }: { view: View }) {
       <Top view={view} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
         <div className="flex min-w-0 flex-col gap-5">
-          <WaysPart key={`ways-${page.id}`} page={page} />
+          <WaysPart key={`ways-${page.id}`} page={page} emailFrom={view.emailFrom} />
           {page.business ? (
             <>
               <PersonalPart key={`notes-${page.id}`} page={page} title="Notes" />
@@ -156,7 +157,6 @@ function firstOf(page: Page, kind: 'phone' | 'email') {
  * them (decision 4 and rule 3: never the phone's own mail app, which could
  * be set to her other address).
  */
-export const gmailCompose = (from: string, to: string) => `https://mail.google.com/mail/?authuser=${encodeURIComponent(from)}&view=cm&fs=1&to=${encodeURIComponent(to)}`
 
 function Reach({ view }: { view: View }) {
   const { page, emailFrom } = view

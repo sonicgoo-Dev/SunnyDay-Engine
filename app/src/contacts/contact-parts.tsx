@@ -11,6 +11,7 @@ import { FOUND_BY, RELATIONS, WAY_LABELS, foundByLabel, partInput, type PartInpu
 import { addFamilyFn, addFieldFn, joinHouseholdFn, leaveHouseholdFn, removeFamilyFn, saveContactPartFn, setFieldValueFn } from './contacts.functions'
 import type { getContactPage } from './contacts.functions'
 import { PersonPicker } from './person-picker'
+import { gmailCompose, phoneDigits } from './reach-links'
 import { useSave } from './use-save'
 
 export type Page = Awaited<ReturnType<typeof getContactPage>>['page']
@@ -88,7 +89,7 @@ function useEditor(contactId: string) {
 
 type Way = { kind: 'phone' | 'email'; value: string; label: string }
 
-export function WaysPart({ page }: { page: Page }) {
+export function WaysPart({ page, emailFrom }: { page: Page; emailFrom: string | null }) {
   const e = useEditor(page.id)
   const [ways, setWays] = useState<Way[]>([])
   const [mailing, setMailing] = useState('')
@@ -157,9 +158,18 @@ export function WaysPart({ page }: { page: Page }) {
           {page.ways.map((w) => (
             <div key={w.id} className="flex flex-col">
               <span className="text-sm text-muted-foreground">{w.label[0]!.toUpperCase() + w.label.slice(1)}</span>
-              <a href={w.kind === 'phone' ? `tel:${w.value.replace(/[^\d+]/g, '')}` : `mailto:${w.value}`} className="break-all text-primary underline-offset-2 hover:underline">
-                {w.value}
-              </a>
+              {w.kind === 'phone' ? (
+                <a href={`tel:${phoneDigits(w.value)}`} className="break-all text-primary underline-offset-2 hover:underline">
+                  {w.value}
+                </a>
+              ) : emailFrom && !page.reach.noEmail ? (
+                // Same as the Email button: Gmail, as the main address.
+                <a href={gmailCompose(emailFrom, w.value)} target="_blank" rel="noopener noreferrer" className="break-all text-primary underline-offset-2 hover:underline">
+                  {w.value}
+                </a>
+              ) : (
+                <span className="break-all">{w.value}</span>
+              )}
             </div>
           ))}
           <Detail label="Mailing address">{page.mailingAddress}</Detail>
