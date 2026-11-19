@@ -242,3 +242,34 @@ export async function tidyListMail(db: Db, workspaceId: string): Promise<void> {
     if (old.length) await tx.delete(listMail).where(inArray(listMail.runId, old.map((r) => r.id)))
   })
 }
+
+/** A year that keeps failing at one step says so on the card, in plain words; cleared when it moves again. */
+export async function noteRunProblem(db: Db, workspaceId: string, runId: string, problem: string | null): Promise<void> {
+  await inWorkspace(db, workspaceId, (tx) => tx.update(listRun).set({ lastProblem: problem }).where(eq(listRun.id, runId)))
+}
+
+/**
+ * Every year still being worked on has its next job waiting. Run by the
+ * worker's housekeeping, so a job lost when the worker restarted heals
+ * itself. A job already waiting is never doubled.
+ */
+export async function ensureRunJobs(db: Db, workspaceId: string): Promise<void> {
+  await inWorkspace(db, workspaceId, async (tx) => {
+    const runs = await tx.select().from(listRun).where(inArray(listRun.status, ['reading', 'sorting', 'thinking']))
+    for (const run of runs) {
+      if (run.status === 'sorting') await enqueue(tx, { workspaceId, kind: LIST_SORT, payload: { runId: run.id }, dedupe: run.id })
+      else if (run.status === 'thinking') await enqueue(tx, { workspaceId, kind: LIST_THINK, payload: { runId: run.id }, dedupe: run.id })
+      else {
+        for (const [key, part] of Object.entries(run.parts)) {
+          if (part.done) continue
+          if (key !== GOOGLE_PART) await enqueue(tx, { workspaceId, kind: LIST_READ, payload: { runId: run.id, mailboxId: key }, dedupe: `${run.id}:${key}` })
+          else {
+            const [main] = await tx.select({ id: mailbox.id }).from(mailbox).where(and(eq(mailbox.kind, 'gmail'), eq(mailbox.role, 'main')))
+            if (main) await enqueue(tx, { workspaceId, kind: LIST_PEOPLE, payload: { runId: run.id, mailboxId: main.id }, dedupe: run.id })
+            else await markPart(tx, workspaceId, run.id, GOOGLE_PART, { done: true, problem: 'Your Google Contacts were left out, because Gmail is not connected.' })
+          }
+        }
+      }
+    }
+  })
+}

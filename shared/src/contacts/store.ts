@@ -542,8 +542,20 @@ export async function addNote(db: Db, workspaceId: string, contactId: string, te
   })
 }
 
-/** Links two contacts as one household. Two households become one, family and all. */
-export async function joinHousehold(db: Db, workspaceId: string, contactId: string, otherId: string, byUserId: string | null): Promise<void> {
+/** Both people already have a household: joining them would make the two households one. She is asked first. */
+export class HouseholdsWouldMerge extends Error {
+  constructor(readonly others: string[]) {
+    super('Both already have a household.')
+    this.name = 'HouseholdsWouldMerge'
+  }
+}
+
+/**
+ * Links two contacts as one household. When each already has a household
+ * of their own, the two would become one, family and all: that only goes
+ * ahead with confirmMerge, after she has been told who it brings together.
+ */
+export async function joinHousehold(db: Db, workspaceId: string, contactId: string, otherId: string, byUserId: string | null, confirmMerge = false): Promise<void> {
   await inWorkspace(db, workspaceId, async (tx) => {
     if (contactId === otherId) throw new ContactNotFound('partner')
     // Both rows locked in one order, so two links made at once cannot block each other.
@@ -553,6 +565,11 @@ export async function joinHousehold(db: Db, workspaceId: string, contactId: stri
     if (!c) throw new ContactNotFound()
     if (!o) throw new ContactNotFound('partner')
     if (c.householdId && c.householdId === o.householdId) return
+    if (c.householdId && o.householdId && !confirmMerge) {
+      const mates = await tx.select({ fullName: contact.fullName }).from(contact).where(and(inArray(contact.householdId, [c.householdId, o.householdId]), sql`${contact.id} not in ${[c.id, o.id]}`))
+      const family = await tx.select({ name: familyMember.name }).from(familyMember).where(inArray(familyMember.householdId, [c.householdId, o.householdId]))
+      throw new HouseholdsWouldMerge([...mates.map((m) => m.fullName), ...family.map((f) => f.name)])
+    }
     let home = c.householdId ?? o.householdId
     if (!home) home = (await tx.insert(household).values({ workspaceId }).returning({ id: household.id }))[0]!.id
     const merging = [c.householdId, o.householdId].filter((h): h is string => h !== null && h !== home)

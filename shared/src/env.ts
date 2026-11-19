@@ -51,6 +51,9 @@ const workerSchema = schema.pick({ DATABASE_URL: true, SENTRY_DSN: true, CONNECT
   // The worker renews Gmail connections, so it needs the same Google client as the app.
   SIGNIN_GOOGLE_CLIENT_ID: z.string().default(''),
   SIGNIN_GOOGLE_CLIENT_SECRET: z.string().default(''),
+  // The Claude API key (Build 4). Only the worker holds it. Empty = the AI is
+  // not switched on: List Builder still reads and sorts, then waits and says so.
+  ANTHROPIC_API_KEY: z.string().default(''),
 })
 export type WorkerSettings = z.infer<typeof workerSchema>
 

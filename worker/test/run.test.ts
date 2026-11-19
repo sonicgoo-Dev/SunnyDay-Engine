@@ -1,14 +1,36 @@
 // One pass of the worker against a pretend mail server: jobs are done in
 // fair turns, a read is planned again, and a failure never stops the rest.
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { eq, ne } from 'drizzle-orm'
-import { ImapSignInRefused, enqueue, job, listMailboxes, openDb, runMigrations, saveImapConnection, workspace, type ImapReader, type WorkerSettings } from '@sunnyday/shared'
+import {
+  ImapSignInRefused,
+  UNSURE,
+  contact,
+  enqueue,
+  inWorkspace,
+  job,
+  listMailboxes,
+  listPerson,
+  listStatus,
+  openDb,
+  runMigrations,
+  saveImapConnection,
+  startYear,
+  workspace,
+  type ImapReader,
+  type ImapTextReader,
+  type ImapWindowReader,
+  type Thinker,
+  type WorkerSettings,
+} from '@sunnyday/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { keepHouse, workDueJobs } from '../src/run.js'
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://sunnyday_owner:dev@localhost:5432/sunnyday_test'
 const { db, close } = openDb(URL, 4)
 const KEY = 'w'.repeat(40)
-const settings: WorkerSettings = { DATABASE_URL: URL, SENTRY_DSN: '', CONNECTION_KEY: KEY, SIGNIN_GOOGLE_CLIENT_ID: 'id', SIGNIN_GOOGLE_CLIENT_SECRET: 'secret' }
+const settings: WorkerSettings = { DATABASE_URL: URL, SENTRY_DSN: '', CONNECTION_KEY: KEY, SIGNIN_GOOGLE_CLIENT_ID: 'id', SIGNIN_GOOGLE_CLIENT_SECRET: 'secret', ANTHROPIC_API_KEY: '' }
 const wayIn = { host: 'imap.example.com', port: 993 as const, user: 'x@example.com', pass: 'good' }
 
 let behave: 'fine' | 'broken' | 'locked_out' = 'fine'
@@ -110,5 +132,76 @@ describe('the worker', () => {
     await db.delete(job)
     await enqueue(db, { workspaceId: a, kind: 'no.such.thing' })
     expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 1 })
+  })
+})
+
+describe('the worker and List Builder', () => {
+  let c = ''
+  const SECRET_WORDS = 'We may list the house in spring'
+  const imapWindow: ImapWindowReader = async (_w, w) => {
+    const uids = [1, 2, 3].filter((u) => u > w.afterUid).slice(0, 2)
+    return {
+      lastUid: uids.at(-1) ?? w.afterUid,
+      more: uids.length === 2 && uids.at(-1) !== 3,
+      messages: uids.map((uid) => ({
+        bulk: uid === 3,
+        summary: { providerId: `1:${uid}`, threadId: null, direction: 'in' as const, fromName: uid === 3 ? 'A Newsletter' : 'Quinn Old', fromEmail: uid === 3 ? 'news@example.org' : 'quinn@example.com', toLine: 'c@example.com', subject: 'Hello', excerpt: null, sentAt: new Date(Date.now() - uid * 86_400_000) },
+      })),
+    }
+  }
+  const imapTexts: ImapTextReader = async (_w, ids) => new Map(ids.map((id) => [id, SECRET_WORDS]))
+  let aiWorks = true
+  const asked: string[] = []
+  const thinker: Thinker = async (input) => {
+    if (!aiWorks) throw Object.assign(new Error(`could not process: ${input.messages[0]?.text}`), { status: 529 })
+    asked.push(input.addresses[0] ?? '')
+    return { result: { ...UNSURE, kind: 'lead', side: 'seller', sure: 'high', why: 'Thinking of selling.' }, costDollars: 0.001 }
+  }
+  const untilQuiet = async (d: Parameters<typeof workDueJobs>[0]) => {
+    for (let i = 0; i < 20; i++) {
+      const r = await workDueJobs(d)
+      if (r.done + r.failed === 0) return
+    }
+  }
+
+  beforeAll(async () => {
+    await db.delete(job)
+    c = (await db.insert(workspace).values({ name: 'Worker C' }).returning({ id: workspace.id }))[0]!.id
+    await saveImapConnection({ db, connectionKey: KEY, imap }, c, 'c@example.com', wayIn)
+    await db.delete(job)
+  })
+
+  it('with no AI key it reads and sorts a year, then waits and says so; nothing is a contact', async () => {
+    await startYear(db, c, null)
+    await untilQuiet({ ...deps, imapWindow, imapTexts, thinker: null })
+    const status = await listStatus(db, c)
+    expect(status.run).toMatchObject({ year: 1, status: 'paused', pausedWhy: 'not_ready', messagesRead: 3, toLook: 1, looked: 0 })
+    expect(status.notContacts).toBe(1)
+    expect(await db.select().from(job).where(eq(job.status, 'queued'))).toHaveLength(0)
+  })
+
+  it('once the AI is switched on, housekeeping carries the year on to ready', async () => {
+    await keepHouse({ ...deps, imapWindow, imapTexts, thinker })
+    await db.delete(job).where(ne(job.workspaceId, c))
+    aiWorks = false
+    const lines: string[] = []
+    await workDueJobs({ ...deps, imapWindow, imapTexts, thinker, log: (l) => lines.push(l) })
+    // The AI failing is logged as a kind of failure only: never a word of anyone's mail.
+    expect(lines.join('\n')).toMatch(/the AI did not answer \(status 529\)/)
+    expect(lines.join('\n')).not.toContain('list the house')
+    expect(JSON.stringify(await db.select().from(job))).not.toContain('list the house')
+    aiWorks = true
+    await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))
+    await untilQuiet({ ...deps, imapWindow, imapTexts, thinker })
+    expect(asked).toEqual(['quinn@example.com'])
+    expect(await listStatus(db, c)).toMatchObject({ cards: 1, run: { status: 'ready', looked: 1 } })
+    // The worker can read, sort and propose. It cannot make a contact: only her answer does.
+    expect(await inWorkspace(db, c, (tx) => tx.select().from(contact))).toEqual([])
+    expect(await inWorkspace(db, c, (tx) => tx.select({ state: listPerson.state }).from(listPerson).where(eq(listPerson.state, 'yes')))).toEqual([])
+  })
+
+  it('holds no way to answer for her', () => {
+    const run = readFileSync(fileURLToPath(new globalThis.URL('../src/run.ts', import.meta.url)), 'utf8') + readFileSync(fileURLToPath(new globalThis.URL('../src/index.ts', import.meta.url)), 'utf8')
+    expect(run).not.toMatch(/sayYes|yesToAll|addTicked|keepDetails|addContact|pullOut|sayNo/)
   })
 })

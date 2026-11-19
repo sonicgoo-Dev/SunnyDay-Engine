@@ -341,7 +341,7 @@ export async function listStatus(db: Db, workspaceId: string): Promise<ListStatu
             looked: last.looked,
             fromAt: last.fromAt.toISOString(),
             toAt: last.toAt.toISOString(),
-            problems: [...new Set(Object.values(last.parts).map((p) => p.problem).filter((x): x is string => Boolean(x)))],
+            problems: [...new Set([last.lastProblem, ...Object.values(last.parts).map((p) => p.problem)].filter((x): x is string => Boolean(x)))],
           }
         : null,
       yearsRead: runs.length,

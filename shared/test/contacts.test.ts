@@ -10,6 +10,7 @@ import {
   addNote,
   bringBack,
   getContact,
+  HouseholdsWouldMerge,
   joinHousehold,
   leaveHousehold,
   listContacts,
@@ -234,6 +235,20 @@ describe('the contact page', () => {
     await leaveHousehold(db, a, two, by)
     expect((await getContact(db, a, two))?.household).toBeNull()
     expect((await getContact(db, a, one))?.household?.contacts).toEqual([])
+  })
+
+  it('linking two people who each already have a household asks first, naming who it brings together', async () => {
+    const [ann, andy] = (await add(a, { ...couple, fullName: 'Ann Alder', partner: { fullName: 'Andy Alder', phone: null, email: null } })).ids as [string, string]
+    const [bea] = (await add(a, { ...couple, fullName: 'Bea Birch', partner: { fullName: 'Ben Birch', phone: null, email: null } })).ids as [string, string]
+    await addFamily(db, a, bea, { name: 'Bobby', relation: 'child', birthday: null }, by)
+    const asked = await joinHousehold(db, a, ann, bea, by).catch((e: unknown) => e)
+    expect(asked).toBeInstanceOf(HouseholdsWouldMerge)
+    expect((asked as HouseholdsWouldMerge).others.sort()).toEqual(['Andy Alder', 'Ben Birch', 'Bobby'])
+    // Nothing changed until she says so.
+    expect((await getContact(db, a, ann))?.household?.contacts.map((c) => c.fullName)).toEqual(['Andy Alder'])
+    await joinHousehold(db, a, ann, bea, by, true)
+    expect((await getContact(db, a, andy))?.household?.contacts.map((c) => c.fullName).sort()).toEqual(['Ann Alder', 'Bea Birch', 'Ben Birch'])
+    expect((await getContact(db, a, ann))?.household?.family.map((f) => f.name)).toEqual(['Bobby'])
   })
 
   it('a note goes into the story, newest first', async () => {

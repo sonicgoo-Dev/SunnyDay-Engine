@@ -97,7 +97,7 @@ export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: str
     if (!run || (run.status !== 'thinking' && run.status !== 'paused')) return null
     const people = await tx.select().from(listPerson).where(eq(listPerson.lookRunId, runId)).orderBy(desc(listPerson.outCount), desc(listPerson.lastAt), asc(listPerson.id)).limit(size)
     if (people.length === 0) {
-      await tx.update(listRun).set({ status: 'ready', pausedWhy: null, readyAt: sql`now()` }).where(eq(listRun.id, runId))
+      await tx.update(listRun).set({ status: 'ready', pausedWhy: null, lastProblem: null, readyAt: sql`now()` }).where(eq(listRun.id, runId))
       return { run, people, lines: [] as Line[], boxes: [], known: new Map<string, string[]>() }
     }
     // Their mail from this year: what they sent, and what she sent to them.
