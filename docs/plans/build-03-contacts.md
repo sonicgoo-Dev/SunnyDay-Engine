@@ -110,7 +110,7 @@ where one could be written:
 ## Carried forward
 
 - Warn before linking two people who each already have a household
-  (today the second joins the first's household quietly). Small; next
-  time the household card is touched.
+  (today the two households quietly become one, with everyone and all
+  family in it). Small; next time the household card is touched.
 - Verify on an iPhone that the Email button opens Gmail as the main
   address (Eric).
