@@ -241,6 +241,13 @@ async function refreshSearch(tx: InWorkspace, contactIds: string[]): Promise<voi
     if (!c) continue
     const ways = await tx.select({ kind: contactWay.kind, value: contactWay.value }).from(contactWay).where(eq(contactWay.contactId, id))
     const family = c.householdId ? await tx.select({ name: familyMember.name }).from(familyMember).where(eq(familyMember.householdId, c.householdId)) : []
+    // A household is found as one: a dog noted on one partner's page finds them both.
+    const housemates = c.householdId
+      ? await tx
+          .select({ personalNotes: contact.personalNotes })
+          .from(contact)
+          .where(and(eq(contact.householdId, c.householdId), ne(contact.id, id)))
+      : []
     const values = await tx
       .select({ name: customField.name, type: customField.type, value: customValue.value })
       .from(customValue)
@@ -265,6 +272,7 @@ async function refreshSearch(tx: InWorkspace, contactIds: string[]): Promise<voi
       c.foundByOther,
       c.referredByName,
       ...family.map((f) => f.name),
+      ...housemates.map((h) => h.personalNotes),
       ...values.map((v) => (v.type === 'yesno' ? (v.value === 'yes' ? v.name : null) : v.value)),
       ...notes.map((n) => n.body.text),
     ]
@@ -422,7 +430,7 @@ export async function saveContactPart(db: Db, workspaceId: string, contactId: st
         break
       }
     }
-    await refreshSearch(tx, [c.id])
+    await refreshSearch(tx, c.householdId ? await householdOf(tx, c.householdId) : [c.id])
   })
 }
 

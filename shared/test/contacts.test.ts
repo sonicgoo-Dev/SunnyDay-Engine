@@ -157,8 +157,8 @@ describe('search by any detail', () => {
     const { ids } = await add(a, { ...couple, fullName: 'Robert Okafor', partner: { fullName: 'Grace Okafor' } })
     await save(a, ids[0]!, { part: 'personal', personalNotes: 'Golden retriever named Biscuit. Moved from Sacramento.' })
     const found = await listContacts(db, a, { q: 'biscuit' })
-    expect(found.map((r) => r.fullName)).toContain('Robert Okafor')
-    expect((await listContacts(db, a, { q: 'sacramento okafor' })).map((r) => r.fullName)).toEqual(['Robert Okafor'])
+    expect(found.map((r) => r.fullName)).toEqual(expect.arrayContaining(['Robert Okafor', 'Grace Okafor']))
+    expect((await listContacts(db, a, { q: 'sacramento okafor' })).map((r) => r.fullName)).toEqual(['Grace Okafor', 'Robert Okafor'])
   })
 
   it('finds by phone digits, email, family names and her own fields', async () => {

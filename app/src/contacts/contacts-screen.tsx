@@ -1,7 +1,7 @@
 // The Contacts screen: three tabs (Clients, Leads, Business contacts), a
 // search box that looks through every detail, and anyone folded away
 // ("Not active", "Put away") at the bottom.
-import { IconPlus, IconSearch } from '@tabler/icons-react'
+import { IconSearch } from '@tabler/icons-react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -34,17 +34,7 @@ export function ContactsScreen({ rows, search }: { rows: Row[]; search: ListSear
 
   return (
     <div className="flex max-w-3xl flex-col gap-5 px-4 py-8 md:px-12 md:py-12">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-3xl font-medium md:text-4xl">Contacts</h1>
-        <Link
-          to="/contacts/new"
-          search={tab === 'business' ? { business: true } : {}}
-          className="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          <IconPlus aria-hidden className="size-5" />
-          Add
-        </Link>
-      </div>
+      <h1 className="text-3xl font-medium md:text-4xl">Contacts</h1>
 
       <SearchBox initial={search.q ?? ''} tab={tab} />
 
@@ -117,7 +107,7 @@ function SearchBox({ initial, tab }: { initial: string; tab: Tab }) {
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search by any detail: a name, a street, a dog"
+        placeholder="Search by any detail"
         className="min-h-11 w-full rounded-md border border-border bg-card pr-3 pl-10 text-base text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       />
     </div>
