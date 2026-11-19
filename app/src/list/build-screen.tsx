@@ -39,6 +39,8 @@ const people = (n: number) => (n === 1 ? '1 person' : `${n} people`)
 const box = 'flex flex-col gap-3 rounded-xl border bg-card p-5'
 
 export function BuildScreen({ status, page, view, q }: { status: Status; page: Page | null; view: BuildView; q: string }) {
+  // The ten she is working through stay put while she answers; the next ten come only when she taps Keep going.
+  const [round, setRound] = useState(0)
   const tabs: Array<{ view: BuildView; label: string; show: boolean }> = [
     { view: 'cards', label: `People${status.cards ? ` (${status.cards})` : ''}`, show: true },
     { view: 'details', label: `New details (${status.details})`, show: status.details > 0 || view === 'details' },
@@ -71,7 +73,7 @@ export function BuildScreen({ status, page, view, q }: { status: Status; page: P
       {view === 'phone' ? (
         <PhoneFile canChange={status.canChange} />
       ) : page?.view === 'cards' ? (
-        <Cards key={page.cards.map((c) => c.id).join()} first={page.cards} total={page.left} status={status} />
+        <Cards key={round} first={page.cards} left={page.left} status={status} onMore={() => setRound(round + 1)} />
       ) : page?.view === 'details' ? (
         <NewDetails people={page.people} canChange={status.canChange} />
       ) : page?.view === 'ticks' ? (
@@ -85,17 +87,17 @@ export function BuildScreen({ status, page, view, q }: { status: Status; page: P
 
 // ---- Ten cards at a time ---------------------------------------------------------
 
-function Cards({ first, total, status }: { first: CardView[]; total: number; status: Status }) {
+function Cards({ first, left, status, onMore }: { first: CardView[]; left: number; status: Status; onMore: () => void }) {
   const router = useRouter()
   const yesAll = useServerFn(yesToAllFn)
   // The ten she is working through. Answered ones leave; the next ten come only when she asks.
   const [batch, setBatch] = useState(first)
-  const [left, setLeft] = useState(total)
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<string | null>(null)
-  const answered = (id: string) => {
-    setBatch((b) => b.filter((c) => c.id !== id))
-    setLeft((n) => Math.max(0, n - 1))
+  const answered = (ids: string[]) => {
+    setBatch((b) => b.filter((c) => !ids.includes(c.id)))
+    // The counts at the top follow along; the cards on screen stay where they are.
+    void router.invalidate()
   }
 
   async function all() {
@@ -105,8 +107,8 @@ function Cards({ first, total, status }: { first: CardView[]; total: number; sta
       const told = await yesAll({ data: { personIds: batch.map((c) => c.id) } })
       if (!told.ok) setSaid(told.message)
       else {
-        setSaid(told.left > 0 ? `Added ${told.added}. ${told.left === 1 ? 'One still needs' : `${told.left} still need`} something from you: tap Change on ${told.left === 1 ? 'it' : 'each'}.` : null)
-        await router.invalidate()
+        setSaid(told.left > 0 ? `Added ${told.added}. ${told.left === 1 ? 'One still needs' : `${told.left} still need`} something from you first.` : null)
+        answered(told.addedIds)
       }
     } catch {
       setSaid('That did not save. Please try again.')
@@ -138,7 +140,7 @@ function Cards({ first, total, status }: { first: CardView[]; total: number; sta
       <section className={box}>
         <h2 className="text-lg font-medium">{left > 0 ? `That is those done. ${people(left)} left.` : 'That is everyone for now.'}</h2>
         <div className="flex flex-wrap gap-2">
-          {left > 0 && <Button onClick={() => void router.invalidate()}>Keep going</Button>}
+          {left > 0 && <Button onClick={onMore}>Keep going</Button>}
           <Link to="/contacts" className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-card px-4 text-sm font-semibold hover:bg-muted">
             {left > 0 ? 'That’s enough for today' : 'Back to Contacts'}
           </Link>
@@ -154,7 +156,7 @@ function Cards({ first, total, status }: { first: CardView[]; total: number; sta
         {people(left)} left{status.run ? `, from your mail of ${span(status.run.fromAt, status.run.toAt)}` : ''}. The surest come first.
       </p>
       {batch.map((c) => (
-        <PersonCard key={c.id} card={c} canChange={status.canChange} onAnswered={() => answered(c.id)} />
+        <PersonCard key={c.id} card={c} canChange={status.canChange} onAnswered={() => answered([c.id])} />
       ))}
       {status.canChange && ready > 1 && (
         <section className={box}>
@@ -208,7 +210,7 @@ function PersonCard({ card, canChange, onAnswered }: { card: CardView; canChange
     <section aria-label={card.name ?? card.emails[0] ?? 'Someone'} className={box}>
       <div className="flex flex-col gap-0.5">
         <h2 className="text-lg font-medium break-words">{card.name ?? card.emails[0] ?? 'No name found'}</h2>
-        {card.emails.length > 0 && <p className="text-sm break-all text-muted-foreground">{card.emails.join(', ')}</p>}
+        {card.name && card.emails.length > 0 && <p className="text-sm break-all text-muted-foreground">{card.emails.join(', ')}</p>}
       </div>
       <p className="font-semibold">
         {KIND_NAMES[card.kind]}

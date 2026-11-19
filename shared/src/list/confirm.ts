@@ -169,8 +169,8 @@ export async function sayNo(db: Db, workspaceId: string, personId: string): Prom
  * as proposed. A card that still needs something from her (a name, a kind,
  * a side, a client's stage) is left for her, and counted.
  */
-export async function yesToAll(db: Db, workspaceId: string, personIds: string[], byUserId: string | null): Promise<{ added: number; left: number }> {
-  let added = 0
+export async function yesToAll(db: Db, workspaceId: string, personIds: string[], byUserId: string | null): Promise<{ added: number; left: number; addedIds: string[] }> {
+  const addedIds: string[] = []
   let left = 0
   for (const personId of personIds.slice(0, PAGE_SIZE)) {
     await inWorkspace(db, workspaceId, async (tx) => {
@@ -180,10 +180,10 @@ export async function yesToAll(db: Db, workspaceId: string, personIds: string[],
       const answer = yesInput.safeParse(defaultsFor(card))
       if (cardNeeds(card).length > 0 || !answer.success) return void left++
       await makeContact(tx, workspaceId, p, answer.data, byUserId)
-      added++
+      addedIds.push(p.id)
     })
   }
-  return { added, left }
+  return { added: addedIds.length, left, addedIds }
 }
 
 /** Moves someone out of "Not contacts" (a machine by the sort, a nobody by the AI, or her own No) back to a card she fills in. */
@@ -398,7 +398,7 @@ export async function listPage(db: Db, workspaceId: string, view: 'cards' | 'det
     }
     const like = q ? `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%` : null
     const where = like ? and(isNot, or(ilike(listPerson.name, like), sql`${listPerson.emails}::text ilike ${like}`)) : isNot
-    const rows = await tx.select().from(listPerson).where(where).orderBy(desc(listPerson.answeredAt), desc(listPerson.inCount)).limit(100)
+    const rows = await tx.select().from(listPerson).where(where).orderBy(sql`${listPerson.answeredAt} desc nulls last`, desc(listPerson.inCount), asc(listPerson.id)).limit(100)
     return { view, people: rows.map((p) => ({ id: p.id, name: p.name, email: p.emails[0] ?? null, saidNo: p.state === 'no' })), total: await count(tx, isNot) }
   })
 }

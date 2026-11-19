@@ -392,7 +392,7 @@ describe('her answers', () => {
     const page = await cards()
     expect(page.cards.map((c) => c.name)).toEqual(['Lee Lender', 'Quinn Old'])
     await inWorkspace(db, a, (tx) => tx.update(listPerson).set({ proposal: { ...UNSURE, why: 'x' } }).where(eq(listPerson.id, page.cards[1]!.id)))
-    expect(await yesToAll(db, a, page.cards.map((c) => c.id), 'user-1')).toEqual({ added: 1, left: 1 })
+    expect(await yesToAll(db, a, page.cards.map((c) => c.id), 'user-1')).toEqual({ added: 1, left: 1, addedIds: [page.cards[0]!.id] })
     const lee = (await listContacts(db, a, { tab: 'business' }))[0]!
     expect(lee).toMatchObject({ fullName: 'Lee Lender', business: true, company: 'First Bank', businessRole: 'lender' })
     expect((await cards()).cards.map((c) => c.name)).toEqual(['Quinn Old'])
@@ -414,7 +414,7 @@ describe('her answers', () => {
     const page = await cards()
     expect(page.cards).toMatchObject([{ name: 'Sal Stranger', kind: 'unsure' }])
     expect(cardNeeds(page.cards[0]!)).toEqual(['kind'])
-    expect(await yesToAll(db, a, [sal.id], 'user-1')).toEqual({ added: 0, left: 1 })
+    expect(await yesToAll(db, a, [sal.id], 'user-1')).toEqual({ added: 0, left: 1, addedIds: [] })
     await sayNo(db, a, sal.id)
   })
 
