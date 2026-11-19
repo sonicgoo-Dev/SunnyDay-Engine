@@ -269,8 +269,8 @@ when" test has passed and its help pages are written.
 - [x] 1. Skeleton and sign-in (live Nov 17, 2026)
 - [x] 2. Mail connections and the engine room (live Nov 18, 2026; the
   first tester's Gmail and olypen mailboxes are both being read)
-- [ ] 3. Contacts and the contact page (live Nov 18, 2026; waiting for
-  the "Done when" on Eric's phone and the iPhone Email check)
+- [x] 3. Contacts and the contact page (live Nov 18, 2026; Done when
+  passed on Eric's iPhone, Email opens Gmail as the main address)
 - [ ] 4. List Builder
 - [ ] 5. Lead capture
 - [ ] 6. Notes, Today and the morning email

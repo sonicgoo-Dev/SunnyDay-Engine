@@ -61,7 +61,9 @@ screen. Phone width, light and dark. No AI in this build.
 - [x] 8. **Fresh reviewer**; fix what it finds.
 - [x] 9. Help page (`docs/help/contacts.md`), `CLAUDE.md` (plans now in
   `docs/plan/`; the contacts section).
-- [ ] 10. **Show Eric**, and stop.
+- [x] 10. **Show Eric**, and stop. Live Nov 18, 2026. Eric's phone check
+  found the address on the card used a plain email link; fixed the same
+  night, with a test, and checked again on his iPhone.
 
 ## Review focus
 
@@ -112,5 +114,3 @@ where one could be written:
 - Warn before linking two people who each already have a household
   (today the two households quietly become one, with everyone and all
   family in it). Small; next time the household card is touched.
-- Verify on an iPhone that the Email button opens Gmail as the main
-  address (Eric).
