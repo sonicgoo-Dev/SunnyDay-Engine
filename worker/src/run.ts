@@ -3,6 +3,7 @@
 import {
   GOOGLE_PART,
   LIST_PEOPLE,
+  LIST_JOBS,
   LIST_READ,
   LIST_SORT,
   LIST_THINK,
@@ -16,6 +17,8 @@ import {
   finish,
   withoutValues,
   giveUpOnPart,
+  pickUpLeftOutMail,
+  postpone,
   noteMailboxProblem,
   noteRunProblem,
   readJob,
@@ -139,10 +142,14 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
 const reasonOf = (err: unknown) => (err instanceof Error ? `${err.name}: ${withoutValues(err.message)}`.slice(0, 200) : 'unknown error')
 
 /** Works through the jobs that are due, for at most `budgetMs`. Returns how many it did. */
-export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<{ done: number; failed: number }> {
+/** How long a job waits after Google asked SunnyDay to slow down and went on asking. */
+const SLOW_DOWN_WAIT_MINUTES = 5
+
+export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<{ done: number; failed: number; waited: number }> {
   const stopAt = Date.now() + budgetMs
   let done = 0
   let failed = 0
+  let waited = 0
   while (Date.now() < stopAt) {
     const j = await claimNext(deps.db)
     if (!j) break
@@ -150,6 +157,16 @@ export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<
       await withDeadline(doJob(deps, j), JOB_DEADLINE_MS)
       done++
     } catch (err) {
+      // Google asking SunnyDay to slow down is not a failure. The job waits a few minutes and is not counted toward giving up.
+      if (err instanceof Error && err.name === 'GoogleBusy') {
+        waited++
+        await postpone(deps.db, j, SLOW_DOWN_WAIT_MINUTES, reasonOf(err))
+        deps.log?.(`[worker] job ${j.id} (${j.kind}): Google asked SunnyDay to slow down; waiting ${SLOW_DOWN_WAIT_MINUTES} minutes. ${reasonOf(err)}`)
+        if ((LIST_JOBS as readonly string[]).includes(j.kind)) {
+          await noteRunProblem(deps.db, j.workspaceId, String(j.payload.runId ?? ''), 'Google is limiting how fast your mail can be read. List Builder is waiting and will carry on by itself.').catch(() => {})
+        }
+        continue
+      }
       failed++
       const outcome = await fail(deps.db, j, reasonOf(err))
       deps.log?.(`[worker] job ${j.id} (${j.kind}) did not finish, ${outcome === 'retry' ? 'will be tried again' : 'given up after five tries'}: ${reasonOf(err)}`)
@@ -163,7 +180,7 @@ export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<
       }
     }
   }
-  return { done, failed }
+  return { done, failed, waited }
 }
 
 /**
@@ -188,6 +205,9 @@ export async function keepHouse(deps: WorkerDeps): Promise<void> {
   const all = await deps.db.select({ id: workspace.id }).from(workspace)
   for (const w of all) {
     await ensureReadsQueued(deps.db, w.id)
+    // A mailbox set aside part-way through a year is picked up again, so her list is never built from part of her mail.
+    const picked = await pickUpLeftOutMail(deps.db, w.id)
+    if (picked) deps.log?.(`[worker] List Builder picked a set-aside mailbox back up (${picked}).`)
     await ensureRunJobs(deps.db, w.id)
     await resumePausedRuns({ db: deps.db, thinker: deps.thinker ?? null }, w.id)
     await tidyListMail(deps.db, w.id)

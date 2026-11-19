@@ -181,6 +181,18 @@ State the server keeps (database pool, ready flag) hangs off one
   photos taken out in the browser and is never stored.
 - **Where a detail came from** is kept per detail (`detail_source`) and
   shown on the contact page.
+- **The pace of reading Gmail** is set in one place (`gmail.ts`,
+  `GMAIL_PER_SECOND`, far below Google's limit for one mailbox). A "slow
+  down" answer makes that one request wait and try again; if Google goes
+  on saying it, the job is put back to wait five minutes (`postpone`) and
+  is **not** counted toward giving up. Top lines are saved a few at a
+  time, so a turn that stops part-way never repeats or loses work.
+- **A mailbox set aside part-way through the newest year is picked up
+  again by itself** (`pickUpLeftOutMail`, from housekeeping, three times
+  at most), from where its reading stopped. What was sorted and proposed
+  stays; `list_mail.sorted` keeps the second sort from counting mail
+  twice. Learned Nov 18, 2026: the first real run read at Google's limit,
+  was refused, and the year went on with only the newest part of her mail.
 
 ## Screens
 

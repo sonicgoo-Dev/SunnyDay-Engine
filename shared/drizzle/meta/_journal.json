@@ -43,6 +43,13 @@
       "when": 1795065633632,
       "tag": "0005_list_builder",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795073515526,
+      "tag": "0006_list_mail_sorted",
+      "breakpoints": true
     }
   ]
 }

@@ -55,9 +55,22 @@ export class ReconnectNeeded extends Error {
 }
 
 export class GoogleError extends Error {
-  constructor(what: string, readonly status: number) {
-    super(`Google did not answer as expected while ${what} (status ${status}).`)
+  /** `reason` is Google's own short code for the refusal (never a message's words). */
+  constructor(what: string, readonly status: number, readonly reason: string | null = null) {
+    super(`Google did not answer as expected while ${what} (status ${status}${reason ? `, reason ${reason}` : ''}).`)
     this.name = 'GoogleError'
+  }
+}
+
+/**
+ * Google asked SunnyDay to slow down, and went on asking after several
+ * waits. Not a failure: the mailbox is fine. The worker puts the job back
+ * to wait a few minutes and does not count it toward giving up.
+ */
+export class GoogleBusy extends GoogleError {
+  constructor(what: string, status: number, reason: string | null) {
+    super(what, status, reason)
+    this.name = 'GoogleBusy'
   }
 }
 

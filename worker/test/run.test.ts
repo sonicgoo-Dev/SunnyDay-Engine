@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { eq, ne } from 'drizzle-orm'
 import {
+  GoogleBusy,
   ImapSignInRefused,
   UNSURE,
   contact,
@@ -33,11 +34,12 @@ const KEY = 'w'.repeat(40)
 const settings: WorkerSettings = { DATABASE_URL: URL, SENTRY_DSN: '', CONNECTION_KEY: KEY, SIGNIN_GOOGLE_CLIENT_ID: 'id', SIGNIN_GOOGLE_CLIENT_SECRET: 'secret', ANTHROPIC_API_KEY: '' }
 const wayIn = { host: 'imap.example.com', port: 993 as const, user: 'x@example.com', pass: 'good' }
 
-let behave: 'fine' | 'broken' | 'locked_out' = 'fine'
+let behave: 'fine' | 'broken' | 'locked_out' | 'busy' = 'fine'
 const imap: ImapReader = async (_w, cursor, opts) => {
   // This pretend server keeps no sent folder.
   if (opts.folder === 'sent') return { uidValidity: '', lastUid: 0, more: false, messages: [] }
   if (behave === 'broken') throw new Error('the mail server hung up')
+  if (behave === 'busy') throw new GoogleBusy('reading the mailbox', 403, 'userRateLimitExceeded')
   if (behave === 'locked_out') throw new ImapSignInRefused()
   const next = (cursor.lastUid ?? 0) + 1
   return {
@@ -64,21 +66,21 @@ describe('the worker', () => {
   it('reads each connected mailbox, then plans the next read a few minutes on', async () => {
     const boxA = await saveImapConnection({ db, connectionKey: KEY, imap }, a, 'a@example.com', wayIn)
     await saveImapConnection({ db, connectionKey: KEY, imap }, b, 'b@example.com', wayIn)
-    expect(await workDueJobs(deps)).toEqual({ done: 2, failed: 0 })
+    expect(await workDueJobs(deps)).toEqual({ done: 2, failed: 0, waited: 0 })
     expect((await listMailboxes(db, a))[0]!.lastReadAt).toBeInstanceOf(Date)
     const next = await db.select().from(job).where(eq(job.status, 'queued'))
     expect(next).toHaveLength(2)
     expect(next.every((j) => j.runAt.getTime() > Date.now() + 4 * 60_000)).toBe(true)
     expect(next.find((j) => j.workspaceId === a)!.payload).toEqual({ mailboxId: boxA })
     // Nothing is due yet, so a second pass does nothing.
-    expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 0 })
+    expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 0, waited: 0 })
   })
 
   it('a mailbox that fails is tried again later, and the other workspace is still served', async () => {
     await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))
     behave = 'broken'
     const lines: string[] = []
-    expect(await workDueJobs({ ...deps, log: (l) => lines.push(l) })).toEqual({ done: 0, failed: 2 })
+    expect(await workDueJobs({ ...deps, log: (l) => lines.push(l) })).toEqual({ done: 0, failed: 2, waited: 0 })
     expect(lines.join('\n')).toMatch(/will be tried again/)
     // The log names the kind of failure, never an address or a subject.
     expect(lines.join('\n')).not.toMatch(/@example\.com|Hello/)
@@ -106,10 +108,27 @@ describe('the worker', () => {
     expect((await listMailboxes(db, a))[0]!.lastProblem).toBeNull()
   })
 
+  it('"slow down" from Google is a wait, never a failure: however often it happens, the mailbox is not given up on', async () => {
+    behave = 'busy'
+    const lines: string[] = []
+    for (let i = 0; i < 8; i++) {
+      await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))
+      expect(await workDueJobs({ ...deps, log: (l) => lines.push(l) })).toEqual({ done: 0, failed: 0, waited: 2 })
+    }
+    const waiting = await db.select().from(job).where(eq(job.status, 'queued'))
+    expect(waiting).toHaveLength(2)
+    // Not one try was counted, and each waits about five minutes.
+    expect(waiting.every((j) => j.attempts === 0)).toBe(true)
+    expect(waiting.every((j) => j.runAt.getTime() > Date.now() + 4 * 60_000 && j.runAt.getTime() < Date.now() + 6 * 60_000)).toBe(true)
+    expect((await listMailboxes(db, a))[0]).toMatchObject({ status: 'connected', lastProblem: null })
+    expect(lines[0]).toMatch(/Google asked SunnyDay to slow down; waiting 5 minutes.*reason userRateLimitExceeded/)
+    behave = 'fine'
+  })
+
   it('a mailbox whose password stopped working is marked, and not read again until reconnected', async () => {
     await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))
     behave = 'locked_out'
-    expect(await workDueJobs(deps)).toEqual({ done: 2, failed: 0 })
+    expect(await workDueJobs(deps)).toEqual({ done: 2, failed: 0, waited: 0 })
     expect((await listMailboxes(db, a))[0]).toMatchObject({ status: 'needs_reconnect' })
     expect(await db.select().from(job).where(eq(job.status, 'queued'))).toHaveLength(0)
     behave = 'fine'
@@ -127,13 +146,13 @@ describe('the worker', () => {
 
   it('without the key it refuses to read rather than guess', async () => {
     await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))
-    expect(await workDueJobs({ ...deps, settings: { ...settings, CONNECTION_KEY: '' } })).toEqual({ done: 0, failed: 1 })
+    expect(await workDueJobs({ ...deps, settings: { ...settings, CONNECTION_KEY: '' } })).toEqual({ done: 0, failed: 1, waited: 0 })
   })
 
   it('an unknown kind of job is refused, not ignored', async () => {
     await db.delete(job)
     await enqueue(db, { workspaceId: a, kind: 'no.such.thing' })
-    expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 1 })
+    expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 1, waited: 0 })
   })
 })
 

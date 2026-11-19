@@ -4,7 +4,7 @@
 // nothing here can make a contact.
 //
 // Rule 4: mail and Google Contacts are only read. Jobs hold ids only.
-import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lt, min, sql } from 'drizzle-orm'
 import { unseal } from '../crypto/seal.js'
 import type { Db } from '../db/client.js'
 import { listMail, listPerson, listRun, mailbox, type RunPart } from '../db/schema/index.js'
@@ -12,7 +12,7 @@ import { inWorkspace, type InWorkspace } from '../db/workspace.js'
 import { enqueue } from '../jobs/queue.js'
 import { messageIdPage, messageTopLines, type MessageSummary } from '../mail/gmail.js'
 import { ContactsNotAllowed, googleContactsPage, type OutsidePerson } from '../mail/google-contacts.js'
-import { ReconnectNeeded, accessTokenFrom, type Fetch, type GoogleClient } from '../mail/google-token.js'
+import { GoogleError, ReconnectNeeded, accessTokenFrom, type Fetch, type GoogleClient } from '../mail/google-token.js'
 import { ImapSignInRefused, imapWayIn, readImapWindow, type ImapTextReader, type ImapWindowReader } from '../mail/imap.js'
 import type { Thinker } from '../ai/claude.js'
 import { takeInPeople } from './people.js'
@@ -107,18 +107,66 @@ async function markPart(tx: InWorkspace, workspaceId: string, runId: string, key
   const allRead = Object.values(parts).every((p) => p.done)
   await tx
     .update(listRun)
-    .set({ parts, messagesRead: run.messagesRead + alsoRead, ...(allRead ? { status: 'sorting' as const } : {}) })
+    // Reading moved, so any "having trouble" note on the card no longer holds.
+    .set({ parts, messagesRead: run.messagesRead + alsoRead, lastProblem: null, ...(allRead ? { status: 'sorting' as const } : {}) })
     .where(eq(listRun.id, runId))
   if (allRead) await enqueue(tx, { workspaceId, kind: LIST_SORT, payload: { runId }, dedupe: runId })
 }
 
+const MAILBOX_LEFT_OUT = 'SunnyDay could not read one of your mailboxes this time.'
+/** A mailbox set aside is picked up again by itself this many times; after that it stays set aside and the card says so. */
+export const PICK_UPS = 3
+
 /** A part that could not be read after every retry is set aside with a plain reason, so the year still finishes with the rest. */
 export async function giveUpOnPart(db: Db, workspaceId: string, runId: string, key: string): Promise<void> {
-  const problem = key === GOOGLE_PART ? 'SunnyDay could not read your Google Contacts this time.' : 'SunnyDay could not read one of your mailboxes this time.'
-  await inWorkspace(db, workspaceId, (tx) => markPart(tx, workspaceId, runId, key, { done: true, problem }))
+  const problem = key === GOOGLE_PART ? 'SunnyDay could not read your Google Contacts this time.' : MAILBOX_LEFT_OUT
+  await inWorkspace(db, workspaceId, async (tx) => {
+    const [run] = await tx.select({ parts: listRun.parts }).from(listRun).where(eq(listRun.id, runId))
+    await markPart(tx, workspaceId, runId, key, { done: true, problem, gaveUp: (run?.parts[key]?.gaveUp ?? 0) + 1 })
+  })
 }
 
-const PAGE_AT_ONCE = 6
+/**
+ * A mailbox that was set aside part-way through the newest year is picked
+ * up again from where its reading stopped, so the year is never left built
+ * from part of her mail. Run by the worker's housekeeping; she does nothing.
+ *
+ * The year goes back to "reading". Everything already read, sorted and
+ * proposed stays, and her answers stand. When the rest is read, only the
+ * new mail is sorted, and the AI looks only at people it has not looked at.
+ * Returns how many mailboxes were picked up.
+ */
+export async function pickUpLeftOutMail(db: Db, workspaceId: string): Promise<number> {
+  return inWorkspace(db, workspaceId, async (tx) => {
+    const [run] = await tx.select().from(listRun).orderBy(desc(listRun.year)).limit(1).for('update')
+    if (!run) return 0
+    const connected = new Set((await tx.select({ id: mailbox.id }).from(mailbox).where(eq(mailbox.status, 'connected'))).map((b) => b.id))
+    const parts = { ...run.parts }
+    let picked = 0
+    for (const [key, part] of Object.entries(parts)) {
+      // Only a mailbox given up on (not Google Contacts, not one that needs reconnecting), still connected, and not too often.
+      if (key === GOOGLE_PART || !part.done || part.problem !== MAILBOX_LEFT_OUT || !connected.has(key)) continue
+      const gaveUp = part.gaveUp ?? 1
+      if (gaveUp > PICK_UPS) continue
+      const { problem: _gone, ...rest } = part
+      parts[key] = { ...rest, done: false, gaveUp }
+      picked++
+    }
+    if (picked === 0) return 0
+    // Mail a finished sort has already counted is marked, so it is not counted twice when the rest is sorted.
+    if (run.status !== 'reading' && run.status !== 'sorting') await tx.update(listMail).set({ sorted: true }).where(eq(listMail.runId, run.id))
+    await tx.update(listRun).set({ parts, status: 'reading', pausedWhy: null, lastProblem: null, readyAt: null }).where(eq(listRun.id, run.id))
+    for (const [key, part] of Object.entries(parts)) {
+      if (key !== GOOGLE_PART && !part.done) await enqueue(tx, { workspaceId, kind: LIST_READ, payload: { runId: run.id, mailboxId: key }, dedupe: `${run.id}:${key}` })
+    }
+    return picked
+  })
+}
+
+/** Gmail messages asked for side by side. The pace itself is set in gmail.ts; this only keeps a few on the way at once. */
+const PAGE_AT_ONCE = 4
+/** Gmail top lines are saved this many at a time, so a turn that stops part-way never repeats what it already read. */
+const SAVE_EVERY = 60
 /** Runs `work` over every item, a few at a time, keeping the order. */
 async function inBatches<T, R>(items: T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = []
@@ -152,18 +200,54 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
     return 'done'
   }
 
+  /** Keeps what was just read: only what falls inside the year asked for (the mail server's own search is by whole days). */
+  const keep = async (got: Array<{ summary: MessageSummary; bulk: boolean }>, change: Partial<RunPart>) => {
+    const inWindow = got.filter((l) => l.summary.sentAt >= run.fromAt && l.summary.sentAt < run.toAt)
+    await inWorkspace(db, workspaceId, async (tx) => {
+      for (let i = 0; i < inWindow.length; i += 500) {
+        await tx
+          .insert(listMail)
+          .values(inWindow.slice(i, i + 500).map((l) => ({ ...l.summary, bulk: l.bulk, workspaceId, runId, mailboxId })))
+          .onConflictDoNothing()
+      }
+      await markPart(tx, workspaceId, runId, mailboxId, change, inWindow.length)
+    })
+  }
+
   let lines: Array<{ summary: MessageSummary; bulk: boolean }> = []
   let next: Partial<RunPart>
   try {
     if (box.kind === 'gmail') {
       const accessToken = await accessTokenFrom(deps.fetch, deps.google, unseal(deps.connectionKey, workspaceId, box.sealed))
-      const page = await messageIdPage(deps.fetch, accessToken, { afterMs: run.fromAt.getTime(), beforeMs: run.toAt.getTime(), pageToken: part.pageToken })
+      const window = { afterMs: run.fromAt.getTime(), beforeMs: part.beforeMs ?? run.toAt.getTime() }
+      let page: Awaited<ReturnType<typeof messageIdPage>>
+      try {
+        page = await messageIdPage(deps.fetch, accessToken, { ...window, pageToken: part.pageToken })
+      } catch (err) {
+        // Google no longer knows the place in its list (it had been set aside for a while). Gmail lists
+        // newest first, so reading starts again just above the oldest message already kept: nothing is
+        // skipped, and almost nothing is read twice.
+        if (!(err instanceof GoogleError) || err.status !== 400 || !part.pageToken) throw err
+        const [oldest] = await inWorkspace(db, workspaceId, (tx) => tx.select({ at: min(listMail.sentAt) }).from(listMail).where(and(eq(listMail.runId, runId), eq(listMail.mailboxId, mailboxId))))
+        const beforeMs = oldest?.at ? Math.min(window.beforeMs, new Date(oldest.at).getTime() + 3_600_000) : window.beforeMs
+        await inWorkspace(db, workspaceId, async (tx) => {
+          const [fresh] = await tx.select().from(listRun).where(eq(listRun.id, runId)).for('update')
+          if (!fresh?.parts[mailboxId]) return
+          const { pageToken: _lost, ...rest } = fresh.parts[mailboxId]
+          await tx.update(listRun).set({ parts: { ...fresh.parts, [mailboxId]: { ...rest, beforeMs } } }).where(eq(listRun.id, runId))
+        })
+        return 'more'
+      }
       const known = new Set(
         page.ids.length
           ? (await inWorkspace(db, workspaceId, (tx) => tx.select({ providerId: listMail.providerId }).from(listMail).where(and(eq(listMail.mailboxId, mailboxId), inArray(listMail.providerId, page.ids))))).map((r) => r.providerId)
           : [],
       )
-      lines = await inBatches(page.ids.filter((id) => !known.has(id)), PAGE_AT_ONCE, (id) => messageTopLines(deps.fetch, accessToken, id))
+      const fresh = page.ids.filter((id) => !known.has(id))
+      // Saved a little at a time. If Google asks SunnyDay to slow down half-way, the next turn starts where this one stopped.
+      for (let i = 0; i < fresh.length; i += SAVE_EVERY) {
+        await keep(await inBatches(fresh.slice(i, i + SAVE_EVERY), PAGE_AT_ONCE, (id) => messageTopLines(deps.fetch, accessToken, id)), {})
+      }
       next = page.next ? { pageToken: page.next } : { done: true }
     } else {
       const read = deps.imapWindow ?? readImapWindow
@@ -188,17 +272,7 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
     return 'done'
   }
 
-  // Only what falls inside the year asked for (the mail server's own search is by whole days).
-  const inWindow = lines.filter((l) => l.summary.sentAt >= run.fromAt && l.summary.sentAt < run.toAt)
-  await inWorkspace(db, workspaceId, async (tx) => {
-    for (let i = 0; i < inWindow.length; i += 500) {
-      await tx
-        .insert(listMail)
-        .values(inWindow.slice(i, i + 500).map((l) => ({ ...l.summary, bulk: l.bulk, workspaceId, runId, mailboxId })))
-        .onConflictDoNothing()
-    }
-    await markPart(tx, workspaceId, runId, mailboxId, next, inWindow.length)
-  })
+  await keep(lines, next)
   return next.done ? 'done' : 'more'
 }
 
