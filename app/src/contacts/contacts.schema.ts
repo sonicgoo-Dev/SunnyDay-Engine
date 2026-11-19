@@ -11,4 +11,4 @@ export const partSave = contactRef.and(partInput)
 export type Done = { ok: true } | { ok: false; message: string }
 export type Added = { ok: true; id: string } | { ok: false; message: string }
 
-export const findInput = z.object({ q: z.string().trim().min(1).max(100), except: z.string().uuid().optional() })
+export const findInput = z.object({ q: z.string().trim().min(1).max(100), except: z.string().uuid().optional(), forReferral: z.boolean().optional() })

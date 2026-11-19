@@ -10,24 +10,33 @@ const words = (max: number) =>
   z
     .string()
     .trim()
-    .max(max)
+    .max(max, 'That is longer than SunnyDay can keep. Shorten it a little.')
     .nullish()
     .transform((s) => (s ? s : null))
-const name = z.string().trim().min(1, 'A name is needed.').max(200)
+const name = z.string().trim().min(1, 'A name is needed.').max(200, 'That name is too long.')
+/** A date that exists on the calendar: not February 31st, not the year 0. */
+function realDay(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (!m) return false
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  if (y < 1900 || y > 2200) return false
+  const t = new Date(Date.UTC(y, mo - 1, d))
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d
+}
 /** A calendar date, YYYY-MM-DD, or nothing. */
 const day = z
   .string()
   .trim()
   .nullish()
   .transform((s) => (s ? s : null))
-  .refine((s) => s === null || (/^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`))), 'That date does not look right.')
+  .refine((s) => s === null || realDay(s), 'That date does not look right.')
 
 export const phoneValue = z
   .string()
   .trim()
-  .max(40)
+  .max(40, 'That phone number looks too long.')
   .refine((s) => s.replace(/\D/g, '').length >= 7, 'That phone number looks too short.')
-export const emailValue = z.string().trim().toLowerCase().email('That email address does not look right.').max(320)
+export const emailValue = z.string().trim().toLowerCase().email('That email address does not look right.').max(320, 'That email address is too long.')
 
 const optionalPhone = z
   .string()
@@ -94,27 +103,27 @@ const way = z.discriminatedUnion('kind', [
 ])
 
 const buyerWants = z.object({
-  priceMin: z.number().int().min(0).max(1_000_000_000).nullish(),
-  priceMax: z.number().int().min(0).max(1_000_000_000).nullish(),
-  towns: z.string().trim().max(1000).optional(),
-  mustHaves: z.string().trim().max(2000).optional(),
-  dealBreakers: z.string().trim().max(2000).optional(),
+  priceMin: z.number('That price does not look right.').int('That price does not look right.').min(0, 'That price does not look right.').max(1_000_000_000, 'That price does not look right.').nullish(),
+  priceMax: z.number('That price does not look right.').int('That price does not look right.').min(0, 'That price does not look right.').max(1_000_000_000, 'That price does not look right.').nullish(),
+  towns: z.string().trim().max(1000, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  mustHaves: z.string().trim().max(2000, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  dealBreakers: z.string().trim().max(2000, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
   preApproved: z.boolean().nullish(),
-  lender: z.string().trim().max(200).optional(),
-  timeframe: z.string().trim().max(200).optional(),
-  relocatingFrom: z.string().trim().max(200).optional(),
+  lender: z.string().trim().max(200, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  timeframe: z.string().trim().max(200, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  relocatingFrom: z.string().trim().max(200, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
 })
 const sellerWants = z.object({
-  property: z.string().trim().max(500).optional(),
-  why: z.string().trim().max(2000).optional(),
-  when: z.string().trim().max(200).optional(),
-  whatMatters: z.string().trim().max(2000).optional(),
+  property: z.string().trim().max(500, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  why: z.string().trim().max(2000, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  when: z.string().trim().max(200, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
+  whatMatters: z.string().trim().max(2000, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
 })
 
 /** Saving one part of the contact page. */
 export const partInput = z.discriminatedUnion('part', [
   z.object({ part: z.literal('names'), fullName: name, goesBy: words(100), nickname: words(100), company: words(200), businessRole: z.enum(BUSINESS_ROLE_KEYS).nullish() }),
-  z.object({ part: z.literal('ways'), ways: z.array(way).max(20), mailingAddress: words(500), homeAddress: words(500) }),
+  z.object({ part: z.literal('ways'), ways: z.array(way).max(20, 'That is more phones and emails than SunnyDay keeps for one person.'), mailingAddress: words(500), homeAddress: words(500) }),
   z.object({ part: z.literal('reach'), preferredWay: z.enum(PREFERRED_WAYS).nullish().transform((v) => v ?? null), bestTimes: words(300), noText: z.boolean(), noEmail: z.boolean() }),
   z.object({ part: z.literal('dates'), birthday: day, weddingAnniversary: day, homePurchaseDate: day, clientSince: day }),
   z.object({ part: z.literal('personal'), personalNotes: words(10_000) }),
@@ -129,14 +138,14 @@ export type PartData = z.output<typeof partInput>
 
 export const contactRef = z.object({ contactId: id })
 export const stageInput = z.object({ contactId: id, side: z.enum(['buyer', 'seller']), to: z.string().min(1).max(40), confirmBack: z.boolean().optional() })
-export const noteInput = z.object({ contactId: id, text: z.string().trim().min(1, 'Write a few words first.').max(5000) })
+export const noteInput = z.object({ contactId: id, text: z.string().trim().min(1, 'Write a few words first.').max(5000, 'That note is too long. Split it in two.') })
 export const householdInput = z.object({ contactId: id, otherId: id })
 export const familyInput = z.object({ contactId: id, name, relation: z.enum(RELATIONS), birthday: day })
 export const familyRef = z.object({ contactId: id, familyId: id })
-export const fieldInput = z.object({ name: z.string().trim().min(1, 'Give the field a name.').max(60), type: z.enum(FIELD_TYPES) })
-export const valueInput = z.object({ contactId: id, fieldId: id, value: z.string().trim().max(1000).nullable() })
+export const fieldInput = z.object({ name: z.string().trim().min(1, 'Give the field a name.').max(60, 'Keep the field name short.'), type: z.enum(FIELD_TYPES) })
+export const valueInput = z.object({ contactId: id, fieldId: id, value: z.string().trim().max(1000, 'That is longer than SunnyDay can keep. Shorten it a little.').nullable() })
 export const listInput = z.object({
   tab: z.enum(['clients', 'leads', 'business']).optional(),
-  q: z.string().trim().max(200).optional(),
+  q: z.string().trim().max(200, 'That is longer than SunnyDay can keep. Shorten it a little.').optional(),
   putAway: z.boolean().optional(),
 })

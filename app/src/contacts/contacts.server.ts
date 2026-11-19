@@ -3,6 +3,7 @@
 // browser; the database's wall does the rest.
 import {
   ContactNotFound,
+  ContactRefused,
   addContact,
   addCustomField,
   addFamily,
@@ -38,17 +39,19 @@ async function done(work: () => Promise<unknown>): Promise<Done> {
     return { ok: true }
   } catch (err) {
     if (err instanceof ContactNotFound) return { ok: false, message: GONE }
+    if (err instanceof ContactRefused) return { ok: false, message: err.message }
     throw err
   }
 }
 
-export const contactsList = (me: Me, opts: { tab?: Tab; q?: string; putAway?: boolean }): Promise<ContactRow[]> => listContacts(getDb(), me.workspaceId, opts)
+/** The Contacts screen. The nickname comes along only for a search that matched it. */
+export const contactsList = (me: Me, opts: { tab?: Tab; q?: string; putAway?: boolean }): Promise<ContactRow[]> => listContacts(getDb(), me.workspaceId, { ...opts, withNickname: true })
 
-/** People to pick from (a referrer, a partner): names only. */
-export async function findPeople(me: Me, q: string, except?: string): Promise<Array<{ id: string; fullName: string }>> {
+/** People to pick from: names only. A referrer may be a business contact (a referral partner); a partner may not. */
+export async function findPeople(me: Me, q: string, except?: string, forReferral = false): Promise<Array<{ id: string; fullName: string }>> {
   const rows = await listContacts(getDb(), me.workspaceId, { q })
   return rows
-    .filter((r) => r.id !== except && !r.business)
+    .filter((r) => r.id !== except && (forReferral || !r.business))
     .slice(0, 8)
     .map((r) => ({ id: r.id, fullName: r.fullName }))
 }
@@ -57,7 +60,7 @@ export type PageView = { page: ContactPage; emailFrom: string | null }
 
 export async function contactPage(me: Me, contactId: string): Promise<PageView | null> {
   const db = getDb()
-  const [page, boxes] = await Promise.all([getContact(db, me.workspaceId, contactId), listMailboxes(db, me.workspaceId)])
+  const [page, boxes] = await Promise.all([getContact(db, me.workspaceId, contactId, { withNickname: true }), listMailboxes(db, me.workspaceId)])
   if (!page) return null
   // Rule 3: email goes out only from the main mailbox, so the Email button opens Gmail as that address.
   const main = boxes.find((b) => b.role === 'main')
@@ -85,7 +88,7 @@ export const join = (me: Me, contactId: string, otherId: string) => done(() => j
 export const leave = (me: Me, contactId: string) => done(() => leaveHousehold(getDb(), me.workspaceId, contactId, me.userId))
 export const family = (me: Me, contactId: string, f: { name: string; relation: string; birthday: string | null }) =>
   done(() => addFamily(getDb(), me.workspaceId, contactId, f, me.userId))
-export const unfamily = (me: Me, contactId: string, familyId: string) => done(() => removeFamily(getDb(), me.workspaceId, contactId, familyId))
+export const unfamily = (me: Me, contactId: string, familyId: string) => done(() => removeFamily(getDb(), me.workspaceId, contactId, familyId, me.userId))
 export const field = (me: Me, f: { name: string; type: string }) => done(() => addCustomField(getDb(), me.workspaceId, f))
 export const fieldValue = (me: Me, contactId: string, fieldId: string, value: string | null) => done(() => setCustomValue(getDb(), me.workspaceId, contactId, fieldId, value))
 export const away = (me: Me, contactId: string) => done(() => putAway(getDb(), me.workspaceId, contactId, me.userId))

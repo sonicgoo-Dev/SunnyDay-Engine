@@ -5,7 +5,7 @@ import { IconSearch } from '@tabler/icons-react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { TABS, businessRoleLabel, type Tab } from './contacts.schema'
+import { SEARCH_LIMIT, TABS, businessRoleLabel, type Tab } from './contacts.schema'
 import type { getContacts } from './contacts.functions'
 
 type Row = Awaited<ReturnType<typeof getContacts>>[number]
@@ -44,6 +44,7 @@ export function ContactsScreen({ rows, search }: { rows: Row[]; search: ListSear
         <section aria-label="Search results" className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">{rows.length === 0 ? `Nobody matches “${search.q}”.` : `Matching “${search.q}” in every detail, across all tabs.`}</p>
           <List rows={rows} showTab />
+          {rows.length >= SEARCH_LIMIT && <p className="text-sm text-muted-foreground">Showing the first {SEARCH_LIMIT}. Add another word to narrow it down.</p>}
         </section>
       ) : (
         <>
@@ -86,7 +87,11 @@ function SearchBox({ initial, tab }: { initial: string; tab: Tab }) {
   const navigate = useNavigate()
   const [q, setQ] = useState(initial)
   const first = useRef(true)
-  useEffect(() => setQ(initial), [initial])
+  const box = useRef<HTMLInputElement>(null)
+  // Follows the address (Back, a tab) but never overwrites what she is typing.
+  useEffect(() => {
+    if (document.activeElement !== box.current) setQ(initial)
+  }, [initial])
   // Searches as she types, a moment after she stops.
   useEffect(() => {
     if (first.current) {
@@ -104,6 +109,7 @@ function SearchBox({ initial, tab }: { initial: string; tab: Tab }) {
       <IconSearch aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" />
       <input
         id="contact-search"
+        ref={box}
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}

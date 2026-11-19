@@ -122,6 +122,30 @@ State the server keeps (database pool, ready flag) hangs off one
   `/callback`) check the session first; `app/test/guard.test.ts` lists
   them and holds them to it.
 
+## Contacts (Build 3)
+
+- **Where it lives**: `shared/src/contacts/` (`rules.ts` stages and tabs,
+  `input.ts` the Zod checks, `store.ts` everything that reads or writes).
+  `rules.ts` and `input.ts` are browser-safe and reach the screens as
+  `@sunnyday/shared/rules`; never import the package root into the browser.
+- **Tables** (`ws`, all behind the wall): `contact`, `nickname`,
+  `contact_way`, `household`, `family_member`, `custom_field`,
+  `custom_value`, `story_event`. Emails in the story are read from
+  `mail_message` by whole address, never copied.
+- **Ids from the browser**: a foreign key ignores the wall, so any id a
+  browser sends to be stored as a link (referrer, partner, field) is
+  looked up inside `inWorkspace` first.
+- **Stages**: only forward on the main path when automatic (`mayMove`);
+  she moves back only after "Move back?" (`confirmBack`). Lead = New,
+  Written to, Talking; past that, client; all sides closed = "Not active".
+- **The nickname** lives in its own table. Anything that writes to a
+  client uses `clientName()` (goes by, else first name).
+  `shared/test/nickname.test.ts` lists the only files allowed to touch it;
+  adding one is Eric's decision.
+- **How they found her** (rule 6) is required when adding a person; a
+  change keeps the original in the story.
+- **Put away** hides, never deletes. Delete for good arrives with Build 22.
+
 ## Screens
 
 Nine, in this order: Today, Approvals, Contacts, Deals, Notes, Money,

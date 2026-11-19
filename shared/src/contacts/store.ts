@@ -24,12 +24,20 @@ import {
 } from '../db/schema/index.js'
 import { inWorkspace, type InWorkspace } from '../db/workspace.js'
 import type { AddData, PartData } from './input.js'
-import { businessRoleLabel, foundByLabel, isBackward, mayMove, tabFor, type Mover, type Side, type Tab } from './rules.js'
+import { SEARCH_LIMIT, businessRoleLabel, foundByLabel, isBackward, mayMove, tabFor, type Mover, type Side, type Tab } from './rules.js'
 
 export class ContactNotFound extends Error {
   constructor(what = 'contact') {
     super(`That ${what} was not found.`)
     this.name = 'ContactNotFound'
+  }
+}
+
+/** A change that is not allowed, with a plain sentence saying why. */
+export class ContactRefused extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ContactRefused'
   }
 }
 
@@ -46,8 +54,20 @@ export type ContactRow = {
   sellerStage: string | null
   tab: Tab
   active: boolean
-  /** Only filled in when searching (the nickname shows on the contact page and in search, nowhere else). */
-  nickname: string | null
+  /**
+   * Only with withNickname, and only when a search word matched it (the
+   * nickname shows on the contact page and in search, nowhere else).
+   */
+  nickname?: string | null
+}
+
+const LEAD_OR_CLOSED = ['New', 'Written to', 'Talking', 'Not now', 'Not a lead', 'Gone quiet', 'Lost']
+/** The same choice as tabFor, made by the database so a long list is never cut short. */
+function tabWhere(tab: Tab): SQL {
+  if (tab === 'business') return sql`${contact.business}`
+  const past = (col: typeof contact.buyerStage | typeof contact.sellerStage) => sql`(${col} is not null and ${col} not in ${LEAD_OR_CLOSED})`
+  const client = sql`(${past(contact.buyerStage)} or ${past(contact.sellerStage)})`
+  return tab === 'clients' ? sql`(not ${contact.business} and ${client})` : sql`(not ${contact.business} and not ${client})`
 }
 
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`)
@@ -59,11 +79,12 @@ function searchWord(word: string): string {
 }
 
 /** Everyone in a tab (or put away), or everyone matching every search word. */
-export async function listContacts(db: Db, workspaceId: string, opts: { tab?: Tab; q?: string; putAway?: boolean }): Promise<ContactRow[]> {
+export async function listContacts(db: Db, workspaceId: string, opts: { tab?: Tab; q?: string; putAway?: boolean; withNickname?: boolean }): Promise<ContactRow[]> {
   const words = (opts.q ?? '').split(/\s+/).filter(Boolean).map(searchWord)
   const searching = words.length > 0
   return inWorkspace(db, workspaceId, async (tx) => {
     const where: SQL[] = [opts.putAway ? isNotNull(contact.putAwayAt) : isNull(contact.putAwayAt)]
+    if (!searching && !opts.putAway && opts.tab) where.push(tabWhere(opts.tab))
     for (const w of words) where.push(sql`(${contact.searchText} || ' ' || lower(coalesce(${nickname.nickname}, ''))) like ${`%${likeEscape(w)}%`} escape '\\'`)
     const rows = await tx
       .select({
@@ -81,10 +102,15 @@ export async function listContacts(db: Db, workspaceId: string, opts: { tab?: Ta
       .leftJoin(nickname, eq(nickname.contactId, contact.id))
       .where(and(...where))
       .orderBy(asc(sql`lower(${contact.fullName})`))
-      .limit(searching ? 100 : 2000)
-    return rows
-      .map((r) => ({ ...r, ...tabFor(r), nickname: searching ? r.nickname : null }))
-      .filter((r) => searching || opts.putAway || !opts.tab || r.tab === opts.tab)
+      .limit(searching ? SEARCH_LIMIT : 20_000)
+    return rows.map(({ nickname: nick, ...r }) => {
+      const row: ContactRow = { ...r, ...tabFor(r) }
+      if (opts.withNickname) {
+        const n = nick?.toLowerCase() ?? ''
+        row.nickname = searching && nick && words.some((w) => n.includes(w)) ? nick : null
+      }
+      return row
+    })
   })
 }
 
@@ -104,7 +130,8 @@ export type ContactPage = {
   business: boolean
   fullName: string
   goesBy: string | null
-  nickname: string | null
+  /** Only with withNickname: for the contact page itself, never for anything that writes to a client. */
+  nickname?: string | null
   company: string | null
   businessRole: string | null
   buyerStage: string | null
@@ -133,15 +160,15 @@ export type ContactPage = {
   createdAt: string
 }
 
-/** An email address as a whole word: "bob@example.com" in "Bob <bob@example.com>", never in "jimbob@example.com". */
-const wholeAddress = (emails: string[]) => `(^|[^a-z0-9._%+-])(${emails.map((e) => e.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})($|[^a-z0-9._%+-])`
+/** Every whole address in a To line, lowercased: "Bob <bob@example.com>, o'bob@example.com" gives both, separately. */
+export const addressesIn = (line: string | null) => (line ?? '').toLowerCase().match(/[^\s<>,;:"()[\]]+@[^\s<>,;:"()[\]]+/g) ?? []
 
 /** The whole contact page, or null when there is no such person in this workspace. */
-export async function getContact(db: Db, workspaceId: string, contactId: string): Promise<ContactPage | null> {
+export async function getContact(db: Db, workspaceId: string, contactId: string, opts: { withNickname?: boolean } = {}): Promise<ContactPage | null> {
   return inWorkspace(db, workspaceId, async (tx) => {
     const [c] = await tx.select().from(contact).where(eq(contact.id, contactId))
     if (!c) return null
-    const [nick] = await tx.select({ nickname: nickname.nickname }).from(nickname).where(eq(nickname.contactId, c.id))
+    const nick = opts.withNickname ? (await tx.select({ nickname: nickname.nickname }).from(nickname).where(eq(nickname.contactId, c.id)))[0] : undefined
     const ways = await tx
       .select({ id: contactWay.id, kind: contactWay.kind, value: contactWay.value, label: contactWay.label })
       .from(contactWay)
@@ -171,7 +198,7 @@ export async function getContact(db: Db, workspaceId: string, contactId: string)
 
     const events = await tx.select().from(storyEvent).where(eq(storyEvent.contactId, c.id)).orderBy(desc(storyEvent.at)).limit(200)
     const emails = ways.filter((w) => w.kind === 'email').map((w) => w.value)
-    const mail = emails.length
+    const mail = (emails.length
       ? await tx
           .select({
             id: mailMessage.id,
@@ -181,13 +208,21 @@ export async function getContact(db: Db, workspaceId: string, contactId: string)
             fromName: mailMessage.fromName,
             sentAt: mailMessage.sentAt,
             mailbox: mailbox.address,
+            toLine: mailMessage.toLine,
           })
           .from(mailMessage)
           .innerJoin(mailbox, eq(mailbox.id, mailMessage.mailboxId))
-          .where(sql`(lower(${mailMessage.fromEmail}) in ${emails} or ${mailMessage.toLine} ~* ${wholeAddress(emails)})`)
+          // Mail they sent, or mail she sent to them. Not mail from someone else that only names them.
+          .where(
+            sql`((${mailMessage.direction} = 'in' and lower(${mailMessage.fromEmail}) in ${emails}) or (${mailMessage.direction} = 'out' and (${sql.join(
+              emails.map((e) => sql`${mailMessage.toLine} ilike ${`%${likeEscape(e)}%`} escape '\\'`),
+              sql` or `,
+            )})))`,
+          )
           .orderBy(desc(mailMessage.sentAt))
-          .limit(50)
+          .limit(200)
       : []
+    ).filter((m) => m.direction === 'in' || addressesIn(m.toLine).some((x) => emails.includes(x))).slice(0, 50)
     const story: StoryItem[] = [
       ...events.map((e) => ({ id: e.id, kind: e.kind, at: e.at.toISOString(), body: e.body })),
       ...mail.map((m) => ({
@@ -207,7 +242,7 @@ export async function getContact(db: Db, workspaceId: string, contactId: string)
       business: c.business,
       fullName: c.fullName,
       goesBy: c.goesBy,
-      nickname: nick?.nickname ?? null,
+      ...(opts.withNickname ? { nickname: nick?.nickname ?? null } : {}),
       company: c.company,
       businessRole: c.businessRole,
       buyerStage: c.buyerStage,
@@ -296,11 +331,12 @@ async function mustFind(tx: InWorkspace, contactId: string) {
 }
 
 /** Checks a referrer exists in this workspace (the wall hides any other). */
-async function checkReferrer(tx: InWorkspace, referredById: string | null, self?: string) {
-  if (!referredById) return
+async function checkReferrer(tx: InWorkspace, referredById: string | null, self?: string): Promise<string | null> {
+  if (!referredById) return null
   if (referredById === self) throw new ContactNotFound('referrer')
-  const [r] = await tx.select({ id: contact.id }).from(contact).where(eq(contact.id, referredById))
+  const [r] = await tx.select({ fullName: contact.fullName }).from(contact).where(eq(contact.id, referredById))
   if (!r) throw new ContactNotFound('referrer')
+  return r.fullName
 }
 
 const story = (tx: InWorkspace, workspaceId: string, contactId: string, kind: StoryKind, body: StoryBody, byUserId: string | null) =>
@@ -326,7 +362,8 @@ export async function addContact(db: Db, workspaceId: string, input: AddData, by
       return { ids: [c!.id] }
     }
 
-    await checkReferrer(tx, input.referredById)
+    // The referrer's name is kept as it was, so the answer still reads right if they are ever removed.
+    const referrerName = await checkReferrer(tx, input.referredById)
     const home = input.partner ? (await tx.insert(household).values({ workspaceId }).returning({ id: household.id }))[0]!.id : null
     const people = [{ fullName: input.fullName, phone: input.phone, email: input.email }, ...(input.partner ? [input.partner] : [])]
     const ids: string[] = []
@@ -341,7 +378,7 @@ export async function addContact(db: Db, workspaceId: string, input: AddData, by
           foundBy: input.foundBy,
           foundByOther: input.foundByOther,
           referredById: input.referredById,
-          referredByName: input.referredByName,
+          referredByName: referrerName ?? input.referredByName,
           foundRecordedAt: new Date(),
           householdId: home,
         })
@@ -405,22 +442,27 @@ export async function saveContactPart(db: Db, workspaceId: string, contactId: st
         break
       case 'found': {
         await checkReferrer(tx, data.referredById, c.id)
-        const changed = c.foundBy !== data.foundBy || c.foundByOther !== data.foundByOther || c.referredById !== data.referredById || c.referredByName !== data.referredByName
+        const changed =
+          c.foundBy !== data.foundBy || c.foundByOther !== data.foundByOther || c.referredById !== data.referredById || (!data.referredById && c.referredByName !== data.referredByName)
         if (!changed) break
         const oldReferrer = c.referredById ? ((await tx.select({ fullName: contact.fullName }).from(contact).where(eq(contact.id, c.referredById)))[0]?.fullName ?? null) : null
         // Rule 6: the answer given when they were added is never lost. The story keeps what it was.
-        await story(tx, workspaceId, c.id, 'found', { was: describeFound(c, oldReferrer), to: foundByLabel(data.foundBy) }, byUserId)
+        const newReferrer = data.referredById ? ((await tx.select({ fullName: contact.fullName }).from(contact).where(eq(contact.id, data.referredById)))[0]?.fullName ?? null) : null
+        const referredByName = newReferrer ?? data.referredByName
+        await story(tx, workspaceId, c.id, 'found', { was: describeFound(c, oldReferrer), to: describeFound({ ...data, referredByName }, null) }, byUserId)
+        // foundRecordedAt is left alone: it is the moment they were added.
         await tx
           .update(contact)
-          .set({ foundBy: data.foundBy, foundByOther: data.foundByOther, referredById: data.referredById, referredByName: data.referredByName, foundRecordedAt: now, updatedAt: now })
+          .set({ foundBy: data.foundBy, foundByOther: data.foundByOther, referredById: data.referredById, referredByName, updatedAt: now })
           .where(eq(contact.id, c.id))
         break
       }
       case 'sides': {
         if (c.business) break
         const changes: Array<{ side: Side; from: string | null; to: string | null }> = []
-        const buyerStage = data.buyer ? (c.buyerStage ?? 'New') : null
-        const sellerStage = data.seller ? (c.sellerStage ?? 'New') : null
+        // A side turned back on returns to the stage it had, never silently to New.
+        const buyerStage = data.buyer ? (c.buyerStage ?? (await lastStage(tx, c.id, 'buyer'))) : null
+        const sellerStage = data.seller ? (c.sellerStage ?? (await lastStage(tx, c.id, 'seller'))) : null
         if (buyerStage !== c.buyerStage) changes.push({ side: 'buyer', from: c.buyerStage, to: buyerStage })
         if (sellerStage !== c.sellerStage) changes.push({ side: 'seller', from: c.sellerStage, to: sellerStage })
         await tx.update(contact).set({ buyerStage, sellerStage, updatedAt: now }).where(eq(contact.id, c.id))
@@ -432,6 +474,17 @@ export async function saveContactPart(db: Db, workspaceId: string, contactId: st
     }
     await refreshSearch(tx, c.householdId ? await householdOf(tx, c.householdId) : [c.id])
   })
+}
+
+/** The stage a side had when it was last turned off, or New. */
+async function lastStage(tx: InWorkspace, contactId: string, side: Side): Promise<string> {
+  const [e] = await tx
+    .select({ body: storyEvent.body })
+    .from(storyEvent)
+    .where(and(eq(storyEvent.contactId, contactId), eq(storyEvent.kind, 'stage'), sql`${storyEvent.body}->>'side' = ${side}`, sql`${storyEvent.body} ? 'text'`))
+    .orderBy(desc(storyEvent.at))
+    .limit(1)
+  return e?.body.from ?? 'New'
 }
 
 export type MoveResult = { ok: true } | { ok: false; reason: 'gone' | 'refused' | 'confirm' }
@@ -476,8 +529,11 @@ export async function addNote(db: Db, workspaceId: string, contactId: string, te
 export async function joinHousehold(db: Db, workspaceId: string, contactId: string, otherId: string, byUserId: string | null): Promise<void> {
   await inWorkspace(db, workspaceId, async (tx) => {
     if (contactId === otherId) throw new ContactNotFound('partner')
-    const c = await mustFind(tx, contactId)
-    const [o] = await tx.select().from(contact).where(eq(contact.id, otherId)).for('update')
+    // Both rows locked in one order, so two links made at once cannot block each other.
+    const both = await tx.select().from(contact).where(inArray(contact.id, [contactId, otherId])).orderBy(asc(contact.id)).for('update')
+    const c = both.find((x) => x.id === contactId)
+    const o = both.find((x) => x.id === otherId)
+    if (!c) throw new ContactNotFound()
     if (!o) throw new ContactNotFound('partner')
     if (c.householdId && c.householdId === o.householdId) return
     let home = c.householdId ?? o.householdId
@@ -500,11 +556,12 @@ export async function leaveHousehold(db: Db, workspaceId: string, contactId: str
   await inWorkspace(db, workspaceId, async (tx) => {
     const c = await mustFind(tx, contactId)
     if (!c.householdId) return
+    const others = (await householdOf(tx, c.householdId)).filter((x) => x !== c.id)
+    // Leaving would leave the household, and its family, with nobody: refused, so nothing is lost.
+    if (others.length === 0) throw new ContactRefused(`${c.fullName} is the only one in this household, so there is nothing to leave.`)
     await tx.update(contact).set({ householdId: null }).where(eq(contact.id, c.id))
     await story(tx, workspaceId, c.id, 'household', { text: 'Left the household' }, byUserId)
-    const left = await householdOf(tx, c.householdId)
-    if (left.length === 0) await tx.delete(household).where(eq(household.id, c.householdId))
-    await refreshSearch(tx, [c.id, ...left])
+    await refreshSearch(tx, [c.id, ...others])
   })
 }
 
@@ -522,15 +579,16 @@ export async function addFamily(db: Db, workspaceId: string, contactId: string, 
   })
 }
 
-export async function removeFamily(db: Db, workspaceId: string, contactId: string, familyId: string): Promise<void> {
+export async function removeFamily(db: Db, workspaceId: string, contactId: string, familyId: string, byUserId: string | null): Promise<void> {
   await inWorkspace(db, workspaceId, async (tx) => {
     const c = await mustFind(tx, contactId)
     if (!c.householdId) throw new ContactNotFound('family member')
     const gone = await tx
       .delete(familyMember)
       .where(and(eq(familyMember.id, familyId), eq(familyMember.householdId, c.householdId)))
-      .returning({ id: familyMember.id })
+      .returning({ name: familyMember.name })
     if (gone.length === 0) throw new ContactNotFound('family member')
+    await story(tx, workspaceId, c.id, 'household', { text: `Removed ${gone[0]!.name} from the household` }, byUserId)
     await refreshSearch(tx, await householdOf(tx, c.householdId))
   })
 }

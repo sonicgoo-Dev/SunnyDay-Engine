@@ -228,6 +228,7 @@ export function HouseholdPart({ page }: { page: Page }) {
   const removeFam = useServerFn(removeFamilyFn)
   const { busy, problem, run } = useSave()
   const [mode, setMode] = useState<'none' | 'link' | 'family' | 'leave'>('none')
+  const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null)
   const [fam, setFam] = useState({ name: '', relation: 'child', birthday: '' })
   const home = page.household
 
@@ -255,12 +256,26 @@ export function HouseholdPart({ page }: { page: Page }) {
                   {f.birthday && `, born ${longDate(f.birthday)}`}
                 </span>
               </span>
-              <Button variant="quiet" aria-label={`Remove ${f.name}`} disabled={busy} onClick={() => void run(() => removeFam({ data: { contactId: page.id, familyId: f.id } }))}>
+              <Button variant="quiet" aria-label={`Remove ${f.name}`} disabled={busy} onClick={() => setRemoving({ id: f.id, name: f.name })}>
                 <IconTrash aria-hidden className="size-4" />
               </Button>
             </li>
           ))}
         </ul>
+      )}
+
+      {removing && (
+        <div className="flex flex-col gap-2 rounded-md bg-muted p-3">
+          <p className="text-sm">Remove {removing.name} from this household? Their name and birthday are taken off every page in it.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={busy} onClick={async () => (await run(() => removeFam({ data: { contactId: page.id, familyId: removing.id } }))) && setRemoving(null)}>
+              Yes, remove
+            </Button>
+            <Button variant="quiet" onClick={() => setRemoving(null)}>
+              Keep {removing.name}
+            </Button>
+          </div>
+        </div>
       )}
 
       {mode === 'link' && (
@@ -450,7 +465,7 @@ export function WantsPart({ page }: { page: Page }) {
   const bw = page.buyerWants
   const sw = page.sellerWants
   const range = bw.priceMin || bw.priceMax ? [money(bw.priceMin) ?? 'any', money(bw.priceMax) ?? 'any'].join(' to ') : null
-  const buyerAny = range || bw.towns || bw.mustHaves || bw.dealBreakers || bw.preApproved !== undefined || bw.lender || bw.timeframe || bw.relocatingFrom
+  const buyerAny = range || bw.towns || bw.mustHaves || bw.dealBreakers || bw.preApproved != null || bw.lender || bw.timeframe || bw.relocatingFrom
   const sellerAny = sw.property || sw.why || sw.when || sw.whatMatters
   const text = (id: string, label: string, value: string | undefined, set: (v: string) => void, area = false) =>
     area ? <TextArea id={id} label={label} rows={2} value={value ?? ''} onChange={(ev) => set(ev.target.value)} /> : <Field id={id} label={label} value={value ?? ''} onChange={(ev) => set(ev.target.value)} />
@@ -584,7 +599,7 @@ export function FoundPart({ page }: { page: Page }) {
               </div>
             ) : (
               <>
-                <PersonPicker id="found-referrer" label="Who referred them?" except={page.id} onPick={setReferrer} />
+                <PersonPicker id="found-referrer" label="Who referred them?" except={page.id} forReferral onPick={setReferrer} />
                 <Field id="found-name" label="Or their name, if they are not in your contacts" value={name} onChange={(ev) => setName(ev.target.value)} />
               </>
             ))}

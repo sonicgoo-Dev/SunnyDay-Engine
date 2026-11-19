@@ -15,6 +15,7 @@ import {
   listContacts,
   moveStage,
   putAway,
+  removeFamily,
   saveContactPart,
   setCustomValue,
 } from '../src/contacts/store.js'
@@ -177,14 +178,14 @@ describe('search by any detail', () => {
   it('finds by the private nickname, and says which name matched', async () => {
     const id = (await add(a, { ...couple, fullName: 'Nick Person', partner: null })).ids[0]!
     await save(a, id, { part: 'names', fullName: 'Nick Person', goesBy: 'Nicky', nickname: 'The Fern Lady' })
-    const found = await listContacts(db, a, { q: 'fern lady' })
+    const found = await listContacts(db, a, { q: 'fern lady', withNickname: true })
     expect(found.map((r) => r.id)).toEqual([id])
     expect(found[0]?.nickname).toBe('The Fern Lady')
   })
 
   it('never shows the nickname in a plain list (no search)', async () => {
     const rows = await listContacts(db, a, { tab: 'leads' })
-    expect(rows.every((r) => r.nickname === null)).toBe(true)
+    expect(rows.every((r) => !('nickname' in r))).toBe(true)
   })
 
   it('treats search words literally (no wildcards)', async () => {
@@ -268,5 +269,89 @@ describe('emails in the story (decision 5)', () => {
     const mails = story.filter((e) => e.kind === 'email')
     expect(mails.map((m) => m.body.text)).toEqual(['Re: Hello', 'Hello'])
     expect(mails[1]).toMatchObject({ mailbox: 'agent@example.com', direction: 'in' })
+  })
+})
+
+describe('fixes from the fresh review', () => {
+  it('changing how they found her never moves the time it was first recorded, and the story keeps both answers in full', async () => {
+    const referrer = (await add(a, { ...couple, fullName: 'Rhea Referrer', partner: null })).ids[0]!
+    const id = (await add(a, { ...couple, fullName: 'Recorded Person', partner: null, foundBy: 'open_house', referredByName: null })).ids[0]!
+    const first = (await getContact(db, a, id))!.found.recordedAt
+    await save(a, id, { part: 'found', foundBy: 'referral', referredById: referrer })
+    const c = (await getContact(db, a, id))!
+    expect(c.found.recordedAt).toBe(first)
+    expect(c.story.find((e) => e.kind === 'found')?.body).toMatchObject({ was: 'Open house', to: 'Referral, Rhea Referrer' })
+  })
+
+  it('keeps the referrer\'s name as it was when picked', async () => {
+    const referrer = (await add(a, { ...couple, fullName: 'Named Referrer', partner: null })).ids[0]!
+    const id = (await add(a, { ...couple, fullName: 'Kept Name', partner: null, referredById: referrer, referredByName: null })).ids[0]!
+    expect((await getContact(db, a, id))!.found.referredByName).toBe('Named Referrer')
+  })
+
+  it('turning a side off and on again brings back the stage it had (never a silent reset to New)', async () => {
+    const id = (await add(a, { ...couple, fullName: 'Fumble Person', partner: null, buyerStage: 'Under contract' })).ids[0]!
+    await save(a, id, { part: 'sides', buyer: false, seller: true })
+    await save(a, id, { part: 'sides', buyer: true, seller: true })
+    expect((await getContact(db, a, id))!.buyerStage).toBe('Under contract')
+  })
+
+  it('shows only mail they sent, or mail sent to them; not mail from someone else that names them, nor a lookalike address', async () => {
+    const id = (await add(a, { ...couple, fullName: 'Cc Person', email: 'cc@example.com', partner: null })).ids[0]!
+    await inWorkspace(db, a, async (tx) => {
+      const [box] = await tx.select().from(mailbox).limit(1)
+      await tx.insert(mailMessage).values([
+        { workspaceId: a, mailboxId: box!.id, providerId: 'cc1', direction: 'in', fromEmail: 'lender@example.com', toLine: 'agent@example.com, cc@example.com', subject: 'From the lender', sentAt: new Date('2026-11-05') },
+        { workspaceId: a, mailboxId: box!.id, providerId: 'cc2', direction: 'out', fromEmail: 'agent@example.com', toLine: "o'cc@example.com", subject: 'Lookalike', sentAt: new Date('2026-11-06') },
+        { workspaceId: a, mailboxId: box!.id, providerId: 'cc3', direction: 'out', fromEmail: 'agent@example.com', toLine: '"Cc, Person" <CC@example.com>; other@example.com', subject: 'To them', sentAt: new Date('2026-11-07') },
+      ])
+    })
+    const mails = (await getContact(db, a, id))!.story.filter((e) => e.kind === 'email')
+    expect(mails.map((m) => m.body.text)).toEqual(['To them'])
+  })
+
+  it('search shows the nickname only when the search matched it', async () => {
+    const id = (await add(a, { ...couple, fullName: 'Quinn Surname', partner: null })).ids[0]!
+    await save(a, id, { part: 'names', fullName: 'Quinn Surname', goesBy: null, nickname: 'Grumpy Q' })
+    expect((await listContacts(db, a, { q: 'surname', withNickname: true }))[0]?.nickname).toBeNull()
+    expect((await listContacts(db, a, { q: 'grumpy', withNickname: true }))[0]?.nickname).toBe('Grumpy Q')
+    expect((await listContacts(db, a, { q: 'grumpy' }))[0]).not.toHaveProperty('nickname')
+  })
+
+  it('the contact page leaves the nickname out unless asked for it', async () => {
+    const id = (await listContacts(db, a, { q: 'quinn surname' }))[0]!.id
+    expect(await getContact(db, a, id)).not.toHaveProperty('nickname')
+    expect((await getContact(db, a, id, { withNickname: true }))?.nickname).toBe('Grumpy Q')
+  })
+
+  it('the last one in a household cannot leave it, so its family is never lost', async () => {
+    const id = (await add(a, { ...couple, fullName: 'Solo Parent', partner: null })).ids[0]!
+    await addFamily(db, a, id, { name: 'Kit', relation: 'child', birthday: null }, by)
+    await expect(leaveHousehold(db, a, id, by)).rejects.toThrow(/only one/)
+    expect((await getContact(db, a, id))!.household?.family.map((f) => f.name)).toEqual(['Kit'])
+  })
+
+  it('removing a family member is written in the story', async () => {
+    const id = (await add(a, { ...couple, fullName: 'Story Parent', partner: null })).ids[0]!
+    await addFamily(db, a, id, { name: 'Ozzie', relation: 'child', birthday: null }, by)
+    const fam = (await getContact(db, a, id))!.household!.family[0]!
+    await removeFamily(db, a, id, fam.id, by)
+    expect((await getContact(db, a, id))!.story[0]).toMatchObject({ kind: 'household', body: { text: 'Removed Ozzie from the household' } })
+  })
+
+  it('refuses a date that does not exist', () => {
+    expect(partInput.safeParse({ part: 'dates', birthday: '2026-02-31' }).success).toBe(false)
+    expect(partInput.safeParse({ part: 'dates', birthday: '0000-01-01' }).success).toBe(false)
+    expect(partInput.safeParse({ part: 'dates', birthday: '2024-02-29' }).success).toBe(true)
+  })
+
+  it('tab lists are chosen by the database, not cut short', async () => {
+    const clients = await listContacts(db, a, { tab: 'clients' })
+    const leads = await listContacts(db, a, { tab: 'leads' })
+    const business = await listContacts(db, a, { tab: 'business' })
+    expect(clients.every((r) => r.tab === 'clients')).toBe(true)
+    expect(leads.every((r) => r.tab === 'leads')).toBe(true)
+    expect(business.every((r) => r.tab === 'business')).toBe(true)
+    expect(leads.some((r) => !r.active)).toBe(true)
   })
 })

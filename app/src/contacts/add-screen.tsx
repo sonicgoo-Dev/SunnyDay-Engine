@@ -146,7 +146,7 @@ export function AddScreen({ startAsBusiness }: { startAsBusiness: boolean }) {
                 </div>
               ) : (
                 <>
-                  <PersonPicker id="add-referrer" label="Who referred them?" onPick={setReferrer} hint="Someone in your contacts, or type their name below." />
+                  <PersonPicker id="add-referrer" label="Who referred them?" forReferral onPick={setReferrer} hint="Someone in your contacts, or type their name below." />
                   <Field id="add-referrer-name" label="Or their name, if they are not in your contacts" value={referredByName} onChange={(e) => setReferredByName(e.target.value)} />
                 </>
               ))}

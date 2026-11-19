@@ -19,7 +19,8 @@ import {
 } from './contacts.schema'
 import { addPerson, away, back, contactPage, contactsList, family, field, fieldValue, findPeople, join, leave, note, savePart, stage, unfamily } from './contacts.server'
 
-export const getContacts = createServerFn({ method: 'GET' })
+// Searches travel as POST so the words typed never sit in a web address or a host's log.
+export const getContacts = createServerFn({ method: 'POST' })
   .middleware([signedInOnly])
   .validator(listInput)
   .handler(({ context, data }) => contactsList(context.me, data))
@@ -33,10 +34,10 @@ export const getContactPage = createServerFn({ method: 'GET' })
     return view
   })
 
-export const findContacts = createServerFn({ method: 'GET' })
+export const findContacts = createServerFn({ method: 'POST' })
   .middleware([signedInOnly])
   .validator(findInput)
-  .handler(({ context, data }) => findPeople(context.me, data.q, data.except))
+  .handler(({ context, data }) => findPeople(context.me, data.q, data.except, data.forReferral))
 
 export const addContactFn = createServerFn({ method: 'POST' })
   .middleware([signedInOnly])

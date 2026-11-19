@@ -47,6 +47,9 @@ export function mayMove(mover: Mover, side: Side, from: string | null, to: strin
   return a >= 0 && b > a
 }
 
+/** Search shows at most this many; the screen says so when it is reached. */
+export const SEARCH_LIMIT = 100
+
 export type Tab = 'clients' | 'leads' | 'business'
 export const TABS: ReadonlyArray<{ tab: Tab; label: string }> = [
   { tab: 'clients', label: 'Clients' },

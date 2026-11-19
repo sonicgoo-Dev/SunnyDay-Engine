@@ -7,16 +7,24 @@ import { findContacts } from './contacts.functions'
 
 type Person = { id: string; fullName: string }
 
-export function PersonPicker({ id, label, except, onPick, hint }: { id: string; label: string; except?: string; onPick: (p: Person) => void; hint?: string }) {
+export function PersonPicker({ id, label, except, onPick, hint, forReferral = false }: { id: string; label: string; except?: string; onPick: (p: Person) => void; hint?: string; forReferral?: boolean }) {
   const find = useServerFn(findContacts)
   const [q, setQ] = useState('')
   const [found, setFound] = useState<Person[] | null>(null)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (q.trim().length < 2) return setFound(null)
     let live = true
     const t = setTimeout(async () => {
-      const people = await find({ data: { q: q.trim(), ...(except ? { except } : {}) } })
-      if (live) setFound(people)
+      try {
+        const people = await find({ data: { q: q.trim(), forReferral, ...(except ? { except } : {}) } })
+        if (live) {
+          setFailed(false)
+          setFound(people)
+        }
+      } catch {
+        if (live) setFailed(true)
+      }
     }, 250)
     return () => {
       live = false
@@ -26,6 +34,7 @@ export function PersonPicker({ id, label, except, onPick, hint }: { id: string; 
   return (
     <div className="flex flex-col gap-2">
       <Field id={id} label={label} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type part of their name" autoComplete="off" {...(hint ? { hint } : {})} />
+      {failed && <p className="text-sm text-warning-foreground">Could not search just now. Try again in a moment.</p>}
       {found && found.length === 0 && <p className="text-sm text-muted-foreground">Nobody in your contacts matches that.</p>}
       {found && found.length > 0 && (
         <ul className="flex flex-col gap-1">

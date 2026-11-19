@@ -23,6 +23,7 @@ const ALLOWED = [
   'shared/src/db/schema/ws.ts', // the table that holds it
   'shared/src/contacts/input.ts', // the check on what the names editor sends
   'shared/src/contacts/store.ts', // saving it, the contact page and search
+  'app/src/contacts/contacts.server.ts', // asks for it for the two screens below, and nothing else
   'app/src/contacts/contact-page.tsx', // shown at the top of the contact page
   'app/src/contacts/contacts-screen.tsx', // shown in search results
 ]

@@ -33,13 +33,13 @@ screen. Phone width, light and dark. No AI in this build.
 
 ## Tasks
 
-- [ ] 1. **Rules, tests first** (`shared/src/contacts/rules.ts`, pure,
+- [x] 1. **Rules, tests first** (`shared/src/contacts/rules.ts`, pure,
   also exported to the screens as `@sunnyday/shared/rules`): the stage
   lists, which tab a person is in, which moves are forward, who may move
   back, the found-by list, `clientName` (goes by, else first name; never
   the nickname).
-- [ ] 2. **Tables** (change 0004) and the wall on each.
-- [ ] 3. **Contacts store, tests first** (`shared/src/contacts/store.ts`):
+- [x] 2. **Tables** (change 0004) and the wall on each.
+- [x] 3. **Contacts store, tests first** (`shared/src/contacts/store.ts`):
   add (with a partner in one household), read the page, save each part,
   stages (forward freely; back only by her, after "Move back?"), notes,
   household link and unlink, family, her own fields, put away and bring
@@ -47,19 +47,19 @@ screen. Phone width, light and dark. No AI in this build.
   matching emails. Tests: another workspace sees nothing; the dog's name
   finds the couple; found-by kept in the story when changed; an
   automatic move back is refused.
-- [ ] 4. **Nickname guard test**: fails if any file outside the allowed
+- [x] 4. **Nickname guard test**: fails if any file outside the allowed
   few reads the nickname, and `clientName` can never return it.
-- [ ] 5. **Server functions** (`app/src/contacts/*.functions.ts`), each
+- [x] 5. **Server functions** (`app/src/contacts/*.functions.ts`), each
   behind `signedInOnly`; workspace from the session only.
-- [ ] 6. **Screens**: Contacts (tabs, search, folded "Not active"), the
+- [x] 6. **Screens**: Contacts (tabs, search, folded "Not active"), the
   contact page (every part, editable in place, Call, Text, Email, the
   story), Add (from the Add button on every screen, "Add their partner
   too"), business contact pages.
-- [ ] 7. **Self-check**: all tests, typecheck, build; the screens at phone
+- [x] 7. **Self-check**: all tests, typecheck, build; the screens at phone
   width in light and dark with made-up people on a local database; the
   "Done when" run through by hand.
-- [ ] 8. **Fresh reviewer**; fix what it finds.
-- [ ] 9. Help page (`docs/help/contacts.md`), `CLAUDE.md` (plans now in
+- [x] 8. **Fresh reviewer**; fix what it finds.
+- [x] 9. Help page (`docs/help/contacts.md`), `CLAUDE.md` (plans now in
   `docs/plan/`; the contacts section).
 - [ ] 10. **Show Eric**, and stop.
 
@@ -77,3 +77,40 @@ screen. Phone width, light and dark. No AI in this build.
 - The "Done when" on his phone with made-up people: a couple in under a
   minute, one household, a stage moved, found by the dog's name.
 - The Email button opening Gmail from the main address on an iPhone.
+
+## Review outcome (Nov 18, 2026)
+
+A fresh reviewer read the whole build. No way found for one workspace to
+reach another's contacts. Seventeen findings; sixteen fixed with a test
+where one could be written:
+
+- The nickname now leaves the store only when a screen asks for it (the
+  contact page, and a search whose words were inside it). The list
+  without a search never carries it. `app/src/contacts/contacts.server.ts`
+  is added to the nickname allowlist: it is the one place that asks.
+- Emails in the story match whole addresses only (no "bob@x.com" in
+  "jimbob@x.com"); incoming by sender, outgoing by recipient.
+- Changing how they found her keeps the original time it was recorded,
+  and the story keeps the full old answer, including the referrer's name.
+- A referrer's name is stored at the moment of capture.
+- Turning a side back on restores the stage it had.
+- Linking a household locks both people, so two at once cannot split it.
+- Leaving a household refuses when nobody else is in it.
+- Removing a family member asks first, and the story records it.
+- A household is searched as one: a dog on one partner's page finds both.
+- Dates must exist on the calendar; every limit has a plain message.
+- Tabs are filtered in the database; search shows at most 100 and says so.
+- Searches travel as POST, so the words typed never sit in a web address
+  or a host's log.
+- A referrer may be a business contact (a referral partner); a partner
+  may not.
+- The search box never overwrites what she is typing.
+- The person picker says "Could not search just now" when it fails.
+
+## Carried forward
+
+- Warn before linking two people who each already have a household
+  (today the second joins the first's household quietly). Small; next
+  time the household card is touched.
+- Verify on an iPhone that the Email button opens Gmail as the main
+  address (Eric).
