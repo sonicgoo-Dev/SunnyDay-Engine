@@ -160,9 +160,10 @@ export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: str
       if (box.kind === 'gmail') {
         const accessToken = await accessTokenFrom(deps.fetch, deps.google, unseal(deps.connectionKey, workspaceId, box.sealed))
         paceAs(accessToken, box.id)
-        for (let i = 0; i < ofBox.length; i += 4) {
+        // One at a time: Google limits how many requests one mailbox may have on the way at once.
+        for (let i = 0; i < ofBox.length; i += 1) {
           await Promise.all(
-            ofBox.slice(i, i + 4).map(async (l) => {
+            ofBox.slice(i, i + 1).map(async (l) => {
               const text = await messageText(deps.fetch, accessToken, l.providerId).catch((err: unknown) => {
                 // Google asking SunnyDay to slow down: the whole turn waits and is tried again, with nobody paid for.
                 if (err instanceof GoogleBusy) throw err

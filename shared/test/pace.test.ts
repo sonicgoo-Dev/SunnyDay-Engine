@@ -58,7 +58,7 @@ function pretendGmail(box: Msg[], opts: { pageSize?: number; refuse?: (id: strin
 
 describe('the pace of reading Gmail', () => {
   it('stays far below what Google allows for one mailbox', async () => {
-    expect(GMAIL_PER_SECOND).toBeLessThanOrEqual(20)
+    expect(GMAIL_PER_SECOND).toBeLessThanOrEqual(10)
     const g = pretendGmail(Array.from({ length: 60 }, (_, i) => ({ id: `p${i}`, ms: NOW - i, from: 'a@example.com' })))
     const began = gmailClock.now()
     // Asked for side by side, as List Builder does: they still go out one at a time, spaced.
@@ -326,6 +326,25 @@ describe('a year read in two goes never pays the AI twice for one person', () =>
     expect(await person('middle@example.com')).toMatchObject({ state: 'proposed', inCount: 4, outCount: 4 })
     const run = (await inWorkspace(db, ws, (tx) => tx.select().from(listRun).where(eq(listRun.id, runId))))[0]!
     expect(run).toMatchObject({ status: 'ready', messagesRead: 30 })
+  })
+})
+
+describe('no answer at all from Google (a timeout, a dropped connection)', () => {
+  it('is tried again in place, and only an ordinary failure if it goes on', async () => {
+    const g = pretendGmail([{ id: 'm', ms: NOW, from: 'a@example.com' }])
+    let hangs = 2
+    const flaky = (async (...args: Parameters<Fetch>) => {
+      if (String(args[0]).includes('/messages/m') && hangs-- > 0) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+      return g.doFetch(...args)
+    }) as Fetch
+    expect((await messageTopLines(flaky, 't-hang', 'm')).summary.providerId).toBe('m')
+    const dead = (async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+    }) as Fetch
+    const err = (await messageTopLines(dead, 't-dead', 'm').catch((e: unknown) => e)) as GoogleError
+    expect(err).toBeInstanceOf(GoogleError)
+    expect(err).not.toBeInstanceOf(GoogleBusy)
+    expect(err.reason).toBe('no_answer')
   })
 })
 

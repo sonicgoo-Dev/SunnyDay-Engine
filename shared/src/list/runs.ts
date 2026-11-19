@@ -163,8 +163,8 @@ export async function pickUpLeftOutMail(db: Db, workspaceId: string): Promise<nu
   })
 }
 
-/** Gmail messages asked for side by side. The pace itself is set in gmail.ts; this only keeps a few on the way at once. */
-const PAGE_AT_ONCE = 4
+/** Gmail messages asked for side by side: one. Google limits how many requests one mailbox may have on the way at once. The pace itself is set in gmail.ts. */
+const PAGE_AT_ONCE = 1
 /** Gmail top lines are saved this many at a time, so a turn that stops part-way never repeats what it already read. */
 const SAVE_EVERY = 60
 /** Runs `work` over every item, a few at a time, keeping the order. */

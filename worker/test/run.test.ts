@@ -117,14 +117,15 @@ describe('the worker', () => {
     }
     const waiting = await db.select().from(job).where(eq(job.status, 'queued'))
     expect(waiting).toHaveLength(2)
-    // Not one try was counted, and each waits about five minutes.
+    // Not one try was counted. The first waits are five minutes; by now each is twenty.
     expect(waiting.every((j) => j.attempts === 0)).toBe(true)
-    expect(waiting.every((j) => j.runAt.getTime() > Date.now() + 4 * 60_000 && j.runAt.getTime() < Date.now() + 6 * 60_000)).toBe(true)
+    expect(waiting.every((j) => j.runAt.getTime() > Date.now() + 19 * 60_000 && j.runAt.getTime() < Date.now() + 21 * 60_000)).toBe(true)
+    expect(lines.at(-1)).toMatch(/waiting 20 minutes/)
     expect((await listMailboxes(db, a))[0]).toMatchObject({ status: 'connected', lastProblem: null })
     expect(lines[0]).toMatch(/Google asked SunnyDay to slow down; waiting 5 minutes.*reason userRateLimitExceeded/)
-    // It keeps count of the waits, and after two hours of them it is a failure like any other, so it is seen.
+    // It keeps count of the waits, and after about five hours of them it is a failure like any other, so it is seen.
     expect(waiting.every((j) => j.payload.waits === 8)).toBe(true)
-    await db.update(job).set({ runAt: new Date(), payload: { ...waiting[0]!.payload, waits: 24 } }).where(eq(job.id, waiting[0]!.id))
+    await db.update(job).set({ runAt: new Date(), payload: { ...waiting[0]!.payload, waits: 18 } }).where(eq(job.id, waiting[0]!.id))
     expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 1, waited: 0 })
     behave = 'fine'
     await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))

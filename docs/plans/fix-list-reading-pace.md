@@ -90,3 +90,27 @@ a row never count as a failure.
 The app must have applied table change 0006 before the worker starts, and
 the worker must start on this code, not the old one. So: merge, confirm
 the app is live, then resume the worker and confirm which commit it runs.
+
+## What the first night on the fix showed (Nov 19, 2026, times Pacific)
+
+- 11:54 PM: the worker resumed on the fixed code. 11:55 PM: "List Builder
+  picked a set-aside mailbox back up (1)".
+- 12:03 AM: one request to Google got no answer in 15 seconds
+  (`TimeoutError`); counted as a failed try.
+- 12:06 AM: `GoogleBusy ... (status 403, reason rateLimitExceeded)`: the
+  cause is now confirmed by Google's own reason code. The job waited five
+  minutes, not counted, as designed.
+
+So Google still said "slow down" at 15 requests a second with four on the
+way at once. Either it also limits how many requests one mailbox may have
+on the way at once, or it was still holding the earlier burst against the
+mailbox. Not provable from here.
+
+## Follow-up, branch `fix-gentler-gmail-pace` (waiting for Eric's go)
+
+- One request at a time for List Builder (reading and the AI look), and 8
+  a second at most.
+- No answer at all (a timeout, a dropped connection) is tried again in
+  place like Google's own trouble, instead of costing a try at once.
+- The wait after "slow down" is five minutes three times, then twenty;
+  the ceiling is 18 waits (about five hours).

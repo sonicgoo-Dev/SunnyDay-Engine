@@ -15,9 +15,13 @@ const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
  * for one mailbox and refuses the rest. SunnyDay stays far below that, so
  * a long read (List Builder's year) and the everyday read can both run
  * without ever meeting the limit. Learned on Nov 18, 2026, when the first
- * real List Builder run read at the limit and was refused.
+ * real List Builder run read at the limit and was refused. Lowered again
+ * the same night (15 a second, four side by side, was still answered
+ * "rateLimitExceeded"): now 8 a second, and List Builder asks for one
+ * message at a time, since Google also limits how many requests one
+ * mailbox may have on the way at once.
  */
-export const GMAIL_PER_SECOND = 15
+export const GMAIL_PER_SECOND = 8
 /** After a "slow down" answer, one request is tried again after each of these waits (seconds), then the job waits instead. */
 const SLOW_DOWN_WAITS = [2, 4, 8, 16]
 
@@ -72,12 +76,21 @@ async function gmailGet(doFetch: Fetch, accessToken: string, path: string, query
   for (const [k, v] of Object.entries(query)) for (const one of Array.isArray(v) ? v : [v]) q.append(k, one)
   for (let tries = 0; ; tries++) {
     await takeTurn(accessToken)
-    const res = await doFetch(`${API}${path}${q.size ? `?${q}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
+    const wait = SLOW_DOWN_WAITS[tries]
+    let res: Response
+    try {
+      res = await doFetch(`${API}${path}${q.size ? `?${q}` : ''}`, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(GOOGLE_TIMEOUT_MS) })
+    } catch {
+      // No answer at all (a timeout, a dropped connection): tried again like Google's own trouble, and
+      // only an ordinary failure if it goes on. Seen on Nov 19, 2026, just before a "slow down".
+      if (wait === undefined) throw new GoogleError('reading the mailbox', 0, 'no_answer')
+      holdEveryone(accessToken, wait * 1000)
+      continue
+    }
     if (res.ok) return res.json()
     if (res.status === 401) throw new ReconnectNeeded()
     const reason = await refusalReason(res)
     if (!worthWaitingFor(res.status, reason)) throw new GoogleError('reading the mailbox', res.status, reason)
-    const wait = SLOW_DOWN_WAITS[tries]
     if (wait === undefined) throw slowDown(res.status, reason) ? new GoogleBusy('reading the mailbox', res.status, reason) : new GoogleError('reading the mailbox', res.status, reason)
     // Google may say how long to wait; never longer than half a minute here (longer is the job's wait, not this request's).
     const asked = Number(res.headers.get('retry-after'))

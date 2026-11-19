@@ -143,10 +143,10 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
 const reasonOf = (err: unknown) => (err instanceof Error ? `${err.name}: ${withoutValues(err.message)}`.slice(0, 200) : 'unknown error')
 
 /** Works through the jobs that are due, for at most `budgetMs`. Returns how many it did. */
-/** How long a job waits after Google asked SunnyDay to slow down and went on asking. */
-const SLOW_DOWN_WAIT_MINUTES = 5
-/** After this many waits in a row (two hours), "slow down" counts as a failure. */
-const MAX_WAITS = 24
+/** The first three waits are five minutes; if Google is still saying it after that, each wait is twenty. */
+const slowDownWait = (waitsSoFar: number) => (waitsSoFar < 3 ? 5 : 20)
+/** After this many waits in a row (about five hours), "slow down" counts as a failure, so it cannot go on unseen. */
+const MAX_WAITS = 18
 
 export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<{ done: number; failed: number; waited: number }> {
   const stopAt = Date.now() + budgetMs
@@ -161,11 +161,12 @@ export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<
       done++
     } catch (err) {
       // Google asking SunnyDay to slow down is not a failure. The job waits a few minutes and is not counted toward giving up.
-      // After two hours of it, though, it is treated as a failure like any other, so it cannot go on unseen.
+      // After about five hours of it, though, it is treated as a failure like any other, so it cannot go on unseen.
       if (err instanceof Error && err.name === 'GoogleBusy' && timesWaited(j) < MAX_WAITS) {
         waited++
-        await postpone(deps.db, j, SLOW_DOWN_WAIT_MINUTES, reasonOf(err))
-        deps.log?.(`[worker] job ${j.id} (${j.kind}): Google asked SunnyDay to slow down; waiting ${SLOW_DOWN_WAIT_MINUTES} minutes. ${reasonOf(err)}`)
+        const minutes = slowDownWait(timesWaited(j))
+        await postpone(deps.db, j, minutes, reasonOf(err))
+        deps.log?.(`[worker] job ${j.id} (${j.kind}): Google asked SunnyDay to slow down; waiting ${minutes} minutes. ${reasonOf(err)}`)
         if ((LIST_JOBS as readonly string[]).includes(j.kind)) {
           await noteRunProblem(deps.db, j.workspaceId, String(j.payload.runId ?? ''), 'Google is limiting how fast your mail can be read. List Builder is waiting and will carry on by itself.').catch(() => {})
         }
