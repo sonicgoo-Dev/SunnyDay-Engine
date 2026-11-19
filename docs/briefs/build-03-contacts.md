@@ -1,6 +1,6 @@
 # Build 3: Contacts and the contact page
 
-Status: waiting for Eric's approval.
+Status: approved by Eric on Nov 18, 2026 ("yes to all 7").
 
 ## What you will be able to do
 

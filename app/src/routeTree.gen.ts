@@ -24,6 +24,8 @@ import { Route as InFrameNotesRouteImport } from './routes/_in/_frame/notes'
 import { Route as InFrameSettingsRouteImport } from './routes/_in/_frame/settings'
 import { Route as InFrameWebsiteRouteImport } from './routes/_in/_frame/website'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as InFrameContactsContactIdRouteImport } from './routes/_in/_frame/contacts_.$contactId'
+import { Route as InFrameContactsNewRouteImport } from './routes/_in/_frame/contacts_.new'
 import { Route as ApiMailGoogleCallbackRouteImport } from './routes/api/mail/google/callback'
 import { Route as ApiMailGoogleStartRouteImport } from './routes/api/mail/google/start'
 
@@ -100,6 +102,17 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InFrameContactsContactIdRoute =
+  InFrameContactsContactIdRouteImport.update({
+    id: '/contacts_/$contactId',
+    path: '/contacts/$contactId',
+    getParentRoute: () => InFrameRoute,
+  } as any)
+const InFrameContactsNewRoute = InFrameContactsNewRouteImport.update({
+  id: '/contacts_/new',
+  path: '/contacts/new',
+  getParentRoute: () => InFrameRoute,
+} as any)
 const ApiMailGoogleCallbackRoute = ApiMailGoogleCallbackRouteImport.update({
   id: '/api/mail/google/callback',
   path: '/api/mail/google/callback',
@@ -125,6 +138,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof InFrameSettingsRoute
   '/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/contacts/$contactId': typeof InFrameContactsContactIdRoute
+  '/contacts/new': typeof InFrameContactsNewRoute
   '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
   '/api/mail/google/start': typeof ApiMailGoogleStartRoute
 }
@@ -142,6 +157,8 @@ export interface FileRoutesByTo {
   '/settings': typeof InFrameSettingsRoute
   '/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/contacts/$contactId': typeof InFrameContactsContactIdRoute
+  '/contacts/new': typeof InFrameContactsNewRoute
   '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
   '/api/mail/google/start': typeof ApiMailGoogleStartRoute
 }
@@ -162,6 +179,8 @@ export interface FileRoutesById {
   '/_in/_frame/website': typeof InFrameWebsiteRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_in/_frame/': typeof InFrameIndexRoute
+  '/_in/_frame/contacts_/$contactId': typeof InFrameContactsContactIdRoute
+  '/_in/_frame/contacts_/new': typeof InFrameContactsNewRoute
   '/api/mail/google/callback': typeof ApiMailGoogleCallbackRoute
   '/api/mail/google/start': typeof ApiMailGoogleStartRoute
 }
@@ -181,6 +200,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/website'
     | '/api/auth/$'
+    | '/contacts/$contactId'
+    | '/contacts/new'
     | '/api/mail/google/callback'
     | '/api/mail/google/start'
   fileRoutesByTo: FileRoutesByTo
@@ -198,6 +219,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/website'
     | '/api/auth/$'
+    | '/contacts/$contactId'
+    | '/contacts/new'
     | '/api/mail/google/callback'
     | '/api/mail/google/start'
   id:
@@ -217,6 +240,8 @@ export interface FileRouteTypes {
     | '/_in/_frame/website'
     | '/api/auth/$'
     | '/_in/_frame/'
+    | '/_in/_frame/contacts_/$contactId'
+    | '/_in/_frame/contacts_/new'
     | '/api/mail/google/callback'
     | '/api/mail/google/start'
   fileRoutesById: FileRoutesById
@@ -338,6 +363,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_in/_frame/contacts_/$contactId': {
+      id: '/_in/_frame/contacts_/$contactId'
+      path: '/contacts/$contactId'
+      fullPath: '/contacts/$contactId'
+      preLoaderRoute: typeof InFrameContactsContactIdRouteImport
+      parentRoute: typeof InFrameRoute
+    }
+    '/_in/_frame/contacts_/new': {
+      id: '/_in/_frame/contacts_/new'
+      path: '/contacts/new'
+      fullPath: '/contacts/new'
+      preLoaderRoute: typeof InFrameContactsNewRouteImport
+      parentRoute: typeof InFrameRoute
+    }
     '/api/mail/google/callback': {
       id: '/api/mail/google/callback'
       path: '/api/mail/google/callback'
@@ -365,6 +404,8 @@ interface InFrameRouteChildren {
   InFrameSettingsRoute: typeof InFrameSettingsRoute
   InFrameWebsiteRoute: typeof InFrameWebsiteRoute
   InFrameIndexRoute: typeof InFrameIndexRoute
+  InFrameContactsContactIdRoute: typeof InFrameContactsContactIdRoute
+  InFrameContactsNewRoute: typeof InFrameContactsNewRoute
 }
 
 const InFrameRouteChildren: InFrameRouteChildren = {
@@ -377,6 +418,8 @@ const InFrameRouteChildren: InFrameRouteChildren = {
   InFrameSettingsRoute: InFrameSettingsRoute,
   InFrameWebsiteRoute: InFrameWebsiteRoute,
   InFrameIndexRoute: InFrameIndexRoute,
+  InFrameContactsContactIdRoute: InFrameContactsContactIdRoute,
+  InFrameContactsNewRoute: InFrameContactsNewRoute,
 }
 
 const InFrameRouteWithChildren =

@@ -1,7 +1,7 @@
 // The frame every screen sits in: a menu down the left on a computer or
 // tablet, and on a phone a slim bar with a Menu button that opens the same
 // list. One list of screens at every width.
-import { IconMenu2, IconX } from '@tabler/icons-react'
+import { IconMenu2, IconPlus, IconX } from '@tabler/icons-react'
 import { Link, useLocation, useRouter } from '@tanstack/react-router'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -28,10 +28,13 @@ export function Frame({ me, children }: { me: Who; children: ReactNode }) {
 
       <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b bg-card px-4 md:hidden">
         <Wordmark className="text-2xl" />
-        <Button variant="outline" aria-expanded={menuOpen} aria-controls="phone-menu" onClick={() => setMenuOpen(true)}>
-          <IconMenu2 aria-hidden className="size-5" />
-          Menu
-        </Button>
+        <div className="flex items-center gap-2">
+          <AddLink />
+          <Button variant="outline" aria-expanded={menuOpen} aria-controls="phone-menu" onClick={() => setMenuOpen(true)}>
+            <IconMenu2 aria-hidden className="size-5" />
+            Menu
+          </Button>
+        </div>
       </header>
 
       {menuOpen && (
@@ -61,6 +64,7 @@ function Menu({ me, pathname, phone = false }: { me: Who; pathname: string; phon
         <div className="flex flex-col gap-1 px-5 pt-7 pb-4">
           <Wordmark className="text-3xl" />
           <span className="text-xs text-muted-foreground">{me.workspaceName}</span>
+          <AddLink className="mt-4 w-full" />
         </div>
       )}
       <nav aria-label="Screens" className="flex flex-1 flex-col gap-1 px-3 py-3">
@@ -87,6 +91,22 @@ function Menu({ me, pathname, phone = false }: { me: Who; pathname: string; phon
         <SignOut name={me.name} />
       </div>
     </>
+  )
+}
+
+/** The Add button on every screen. For now it adds a person; notes and deals join it in later builds. */
+function AddLink({ className }: { className?: string }) {
+  return (
+    <Link
+      to="/contacts/new"
+      className={cn(
+        'inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+        className,
+      )}
+    >
+      <IconPlus aria-hidden className="size-5" />
+      Add
+    </Link>
   )
 }
 
