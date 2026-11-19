@@ -28,6 +28,8 @@ import { LIST_THINK, type ListDeps } from './runs.js'
 export const LIST_BUILDER = 'list_builder'
 /** People looked at in one turn, so one workspace never holds up the others for long. */
 const PER_TURN = 5
+/** A turn stops starting new people after this long, so it always ends well inside the worker's time for one job. */
+const TURN_MS = 100_000
 
 type Line = { id: string; mailboxId: string; providerId: string; direction: 'in' | 'out'; fromEmail: string | null; toLine: string | null; subject: string | null; excerpt: string | null; sentAt: Date }
 
@@ -48,11 +50,19 @@ const day = (d: Date) => d.toISOString().slice(0, 10)
  * its kind and length.
  */
 export function holdToTheMail(out: ThinkOutput, messages: ThinkMessage[]): { proposal: ListProposal; name: string | null; details: Array<{ kind: 'phone' | 'email' | 'address' | 'partner' | 'company'; value: string; label?: string; source: { from: 'email'; at?: string; subject?: string } }> } {
-  const all = messages.map((m) => `${m.subject}\n${m.text}`).join('\n')
-  const digits = all.replace(/\D/g, '')
   // Compared word by word, so a signature broken over several lines still matches.
   const plain = (s: string) => s.toLowerCase().replace(/[^a-z0-9@]+/g, ' ').trim()
-  const lower = ` ${plain(all)} `
+  const textOf = (ms: ThinkMessage[]) => ms.map((m) => `${m.subject}\n${m.text}`).join('\n')
+  // A contact detail must be in what the person wrote, not in her own messages: her signature holds her number, not theirs.
+  const theirs = textOf(messages.filter((m) => !m.fromHer))
+  const digits = theirs.replace(/\D/g, '')
+  const lower = ` ${plain(theirs)} `
+  // A name, a company or who referred them may be in either side's words, but must be in the words.
+  const anywhere = ` ${plain(textOf(messages))} `
+  const said = (v: string | null | undefined, max = 200): string | null => {
+    const t = v?.replace(/\s+/g, ' ').trim().slice(0, max)
+    return t && plain(t) && anywhere.includes(` ${plain(t)} `) ? t : null
+  }
   const details = []
   for (const d of out.details.slice(0, 20)) {
     const value = cleanDetail(d.kind, d.value)
@@ -68,14 +78,14 @@ export function holdToTheMail(out: ThinkOutput, messages: ThinkMessage[]): { pro
     kind: out.kind,
     side: person ? out.side : null,
     businessRole: business ? ((BUSINESS_ROLE_KEYS as readonly string[]).includes(out.businessRole ?? '') ? out.businessRole : 'other') : null,
-    company: business ? (out.company?.trim().slice(0, 200) || null) : null,
+    company: business ? said(out.company) : null,
     // No exclamation marks on any screen, and one line only.
     why: out.why.replace(/\s+/g, ' ').replace(/!+/g, '.').trim().slice(0, 200),
     sure: out.sure,
     foundBy: person && (FOUND_BY_KEYS as readonly string[]).includes(out.foundBy ?? '') ? out.foundBy : null,
-    foundByOther: person && out.foundBy === 'referral' ? (out.foundByOther?.trim().slice(0, 200) || null) : null,
+    foundByOther: person && out.foundBy === 'referral' ? said(out.foundByOther) : null,
   }
-  return { proposal, name: out.name?.replace(/\s+/g, ' ').trim().slice(0, 200) || null, details }
+  return { proposal, name: said(out.name), details }
 }
 
 export type ThinkOutcome = 'more' | 'ready' | 'paused' | 'gone'
@@ -85,8 +95,9 @@ export type ThinkOutcome = 'more' | 'ready' | 'paused' | 'gone'
  * remain, "ready" when the year is done, "paused" when the month's AI
  * limit is reached or the AI is not switched on.
  */
-export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: string, size = PER_TURN): Promise<ThinkOutcome> {
+export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: string, size = PER_TURN, turnMs = TURN_MS): Promise<ThinkOutcome> {
   const { db } = deps
+  const began = Date.now()
   const pause = async (why: 'limit' | 'not_ready'): Promise<ThinkOutcome> => {
     await inWorkspace(db, workspaceId, (tx) => tx.update(listRun).set({ status: 'paused', pausedWhy: why }).where(and(eq(listRun.id, runId), inArray(listRun.status, ['thinking', 'paused']))))
     return 'paused'
@@ -167,6 +178,11 @@ export async function thinkBatch(deps: ListDeps, workspaceId: string, runId: str
   }
 
   for (const p of start.people) {
+    // Out of time for this turn: the rest wait for the next one.
+    if (Date.now() - began > turnMs) return 'more'
+    // Answered, or looked at by another turn, meanwhile: not asked about (or paid for) again.
+    const still = await inWorkspace(db, workspaceId, (tx) => tx.select({ id: listPerson.id }).from(listPerson).where(and(eq(listPerson.id, p.id), eq(listPerson.lookRunId, runId))))
+    if (still.length === 0) continue
     const messages: ThinkMessage[] = (chosen.get(p.id) ?? []).map((l, i) => ({
       n: i + 1,
       date: day(l.sentAt),

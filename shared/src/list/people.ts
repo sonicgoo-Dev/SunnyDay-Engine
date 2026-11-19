@@ -45,7 +45,9 @@ export class PeopleBook {
   }
 
   static async load(tx: InWorkspace, workspaceId: string): Promise<PeopleBook> {
-    const rows = await tx.select().from(listPerson)
+    // Held until this step is saved: an answer of hers, or the AI's look, given meanwhile waits a moment
+    // and then sees these changes, so it can never be undone by an older copy written back.
+    const rows = await tx.select().from(listPerson).for('update')
     const own = new Set((await tx.select({ address: mailbox.address }).from(mailbox)).map((m) => m.address.toLowerCase()))
     const ways = await tx.select({ kind: contactWay.kind, value: contactWay.value, id: contact.id, fullName: contact.fullName }).from(contactWay).innerJoin(contact, eq(contact.id, contactWay.contactId))
     const byEmail = new Map<string, { id: string; fullName: string }>()
@@ -62,7 +64,12 @@ export class PeopleBook {
   /** The person already known by any of these addresses or numbers. */
   find(emails: string[], phones: string[] = []): Draft | undefined {
     for (const e of emails) if (this.byEmail.has(e)) return this.byEmail.get(e)
-    for (const p of phones) if (p.length >= 7 && this.byPhone.has(p)) return this.byPhone.get(p)
+    for (const p of phones) {
+      const same = p.length >= 7 ? this.byPhone.get(p) : undefined
+      // A shared number alone is the same person only when one side has no address to tell them apart:
+      // a couple on one home phone, each with their own address, stay two people.
+      if (same && (emails.length === 0 || same.emails.length === 0)) return same
+    }
     return undefined
   }
 

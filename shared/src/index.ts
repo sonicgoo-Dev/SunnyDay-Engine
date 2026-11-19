@@ -1,4 +1,5 @@
 export * from './env.js'
+export * from './errors.js'
 export * from './db/schema/index.js'
 export * from './db/client.js'
 export * from './db/workspace.js'

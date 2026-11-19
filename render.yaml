@@ -64,3 +64,6 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      # Build 4: lets List Builder ask Claude. The worker only, never the app.
+      - key: ANTHROPIC_API_KEY
+        sync: false

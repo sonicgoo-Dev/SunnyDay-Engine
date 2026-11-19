@@ -31,7 +31,16 @@ const labelOf = (params: string) => {
 /** Every person in a contact file. A card with neither a number nor an address is left out. */
 export function readContactFile(text: string): OutsidePerson[] {
   // A long line is folded onto the next, which then starts with a space; an old-style line may end with "=".
-  const lines = text.replace(/\r\n?/g, '\n').replace(/=\n(?=\S)/g, '').replace(/\n[ \t]/g, '').split('\n')
+  const unfolded = text.replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '').split('\n')
+  // Only an old-style (quoted-printable) line carries on after a closing "="; any other line ending in "=" is just a value.
+  const lines: string[] = []
+  let carrying = false
+  for (const line of unfolded) {
+    if (carrying) lines[lines.length - 1] = lines[lines.length - 1]!.slice(0, -1) + line
+    else lines.push(line)
+    const whole = lines[lines.length - 1]!
+    carrying = whole.endsWith('=') && /^[^:]*quoted-printable[^:]*:/i.test(whole)
+  }
   const people: OutsidePerson[] = []
   let card: (OutsidePerson & { formatted: string | null; structured: string | null }) | null = null
   for (const line of lines) {

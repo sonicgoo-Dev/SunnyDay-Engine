@@ -3,7 +3,7 @@
 // (Build 2), and List Builder's reading, sorting and AI look (Build 4). Exactly one worker runs; the job list is
 // built so a second would be safe, but there is no need for one.
 import * as Sentry from '@sentry/node'
-import { assertWallHolds, claudeThinker, openDb, readWorkerSettings } from '@sunnyday/shared'
+import { assertWallHolds, claudeThinker, openDb, readWorkerSettings, scrubReport } from '@sunnyday/shared'
 import { keepHouse, workDueJobs, type WorkerDeps } from './run.js'
 
 const PAUSE_MS = 5_000
@@ -11,7 +11,7 @@ const HOUSEKEEPING_EVERY_MS = 10 * 60_000
 
 async function main() {
   const settings = readWorkerSettings()
-  if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN, dataCollection: { httpBodies: [], urlQueryParams: false, cookies: false, stackFrameVariables: false } })
+  if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN, dataCollection: { httpBodies: [], urlQueryParams: false, cookies: false, stackFrameVariables: false }, beforeSend: scrubReport })
   const { db, close } = openDb(settings.DATABASE_URL, 4)
   await assertWallHolds(db)
   // The Claude key lives only here, in the worker's settings (rule 7). Without it List Builder reads and sorts, then waits.

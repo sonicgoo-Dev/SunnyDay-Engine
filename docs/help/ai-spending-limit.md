@@ -17,6 +17,11 @@ Your agents pause, and Settings says so. Nothing is lost: everything
 already drafted stays where it is. They start again when you raise the
 limit, or on the 1st of the next month.
 
+## What uses it
+
+Build my list is the first: reading a year of mail usually costs one to
+two dollars. See "Build my list".
+
 ## Switching the agents off
 
 Set the limit to **0**.

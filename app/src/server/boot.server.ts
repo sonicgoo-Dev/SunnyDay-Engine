@@ -4,7 +4,7 @@
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as Sentry from '@sentry/node'
-import { MIGRATIONS_FOLDER, assertWallHolds, runMigrations, seedFirstInvites } from '@sunnyday/shared'
+import { MIGRATIONS_FOLDER, assertWallHolds, runMigrations, scrubReport, seedFirstInvites } from '@sunnyday/shared'
 import { closeServer, getServer, setReady } from './db.server'
 
 // The build copies shared/drizzle beside the bundled server (scripts/copy-migrations.mjs).
@@ -28,7 +28,7 @@ export async function boot(): Promise<() => Promise<void>> {
     const { settings, open } = getServer()
     // Error reports never carry what a person typed (a mailbox password), an address's
     // query (Google's one-time code) or cookies.
-    if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN, dataCollection: { httpBodies: [], urlQueryParams: false, cookies: false, stackFrameVariables: false } })
+    if (settings.SENTRY_DSN) Sentry.init({ dsn: settings.SENTRY_DSN, dataCollection: { httpBodies: [], urlQueryParams: false, cookies: false, stackFrameVariables: false }, beforeSend: scrubReport })
     // Rule 1: never run as a database user the wall does not apply to.
     step = 'checking the wall between workspaces'
     await assertWallHolds(open.db)

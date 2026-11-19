@@ -21,6 +21,10 @@ SunnyDay asks for permission to read your mail, and to write and send
 messages. Reading is all it does today. Nothing is ever sent unless you
 approve that message first.
 
+It also asks to see your Google Contacts, for Build my list. It can only
+read them, never change them. If you connected Gmail before this was
+asked for, tap **Include my Google Contacts** in Settings.
+
 ## A second mailbox
 
 For an older address you still get mail at. SunnyDay reads it and never

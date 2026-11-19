@@ -95,20 +95,41 @@ export function thinkPrompt(input: ThinkInput): string {
 
 /** The real thing: one request to Claude. Made only when a key is set in the host's settings. */
 export function claudeThinker(apiKey: string): Thinker {
-  const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 60_000 })
+  // One try again at most, and a short wait: a turn of five people must end well inside the worker's time for one job.
+  const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 40_000 })
   return async (input) => {
-    const response = await client.messages.parse({
-      model: LIST_BUILDER_MODEL,
-      max_tokens: 4000,
-      system: LIST_BUILDER_BRIEF,
-      messages: [{ role: 'user', content: thinkPrompt(input) }],
-      output_config: { effort: 'low', format: zodOutputFormat(thinkOutput) },
-    })
+    let response
+    try {
+      // Plain create, not parse(): parse() throws on an answer that is not in the agreed shape, and the cost of that answer would be lost.
+      response = await client.messages.create({
+        model: LIST_BUILDER_MODEL,
+        max_tokens: 4000,
+        system: LIST_BUILDER_BRIEF,
+        messages: [{ role: 'user', content: thinkPrompt(input) }],
+        output_config: { effort: 'low', format: zodOutputFormat(thinkOutput) },
+      })
+    } catch (err) {
+      // The request itself was turned down because of what these messages hold (too large, or not acceptable). Trying again cannot help:
+      // nothing was charged, and she gets a card to fill in herself. Anything else (the key, the account, a busy service) is thrown and tried again later.
+      if (err instanceof Anthropic.APIError && (err.status === 413 || (err.status === 400 && !/credit|billing|balance/i.test(err.message)))) return { result: UNSURE, costDollars: 0 }
+      throw err
+    }
     const u = response.usage
     const costDollars =
       (u.input_tokens * PRICE.input + u.output_tokens * PRICE.output + (u.cache_read_input_tokens ?? 0) * PRICE.cacheRead + (u.cache_creation_input_tokens ?? 0) * PRICE.cacheWrite) / 1_000_000
-    // Declined, cut short, or not in the agreed shape: paid for all the same, and she gets a card to fill in herself.
-    const result = response.stop_reason === 'end_turn' && response.parsed_output ? response.parsed_output : UNSURE
-    return { result, costDollars }
+    return { result: readAnswer(response.stop_reason, response.content), costDollars }
+  }
+}
+
+/** The answer in the agreed shape. Declined, cut short, or not in that shape: paid for all the same, and she gets a card to fill in herself. */
+export function readAnswer(stopReason: string | null, content: ReadonlyArray<{ type: string; text?: string }>): ThinkOutput {
+  if (stopReason !== 'end_turn') return UNSURE
+  const text = content.find((b) => b.type === 'text')?.text
+  if (!text) return UNSURE
+  try {
+    const parsed = thinkOutput.safeParse(JSON.parse(text))
+    return parsed.success ? parsed.data : UNSURE
+  } catch {
+    return UNSURE
   }
 }

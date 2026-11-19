@@ -14,6 +14,7 @@ import {
   ensureRunJobs,
   fail,
   finish,
+  withoutValues,
   giveUpOnPart,
   noteMailboxProblem,
   noteRunProblem,
@@ -135,7 +136,7 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 /** A short reason safe to keep and to log: the kind of error, never a customer's words. */
-const reasonOf = (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : 'unknown error')
+const reasonOf = (err: unknown) => (err instanceof Error ? `${err.name}: ${withoutValues(err.message)}`.slice(0, 200) : 'unknown error')
 
 /** Works through the jobs that are due, for at most `budgetMs`. Returns how many it did. */
 export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<{ done: number; failed: number }> {

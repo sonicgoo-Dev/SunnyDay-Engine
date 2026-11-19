@@ -37,47 +37,47 @@ use made-up mail and a pretend AI; no real mailbox and no paid call.
 
 ## Tasks
 
-- [ ] 1. **Rules, tests first** (`shared/src/list/rules.ts`, browser-safe):
+- [x] 1. **Rules, tests first** (`shared/src/list/rules.ts`, browser-safe):
   the kinds, the stage each kind goes in at (decision 7), what a card
   still needs from her, the automated-sender test, the Zod checks for her
   answers.
-- [ ] 2. **Tables** (change 0005) and the wall on each.
-- [ ] 3. **Reading a year of mail, tests first.** Gmail: a page of ids for
+- [x] 2. **Tables** (change 0005) and the wall on each.
+- [x] 3. **Reading a year of mail, tests first.** Gmail: a page of ids for
   a window, then each message's top lines; the text of one message. The
   second mailbox: envelopes for a window; the text of chosen messages,
   opened read only. Google Contacts (`google-contacts.ts`, asking only).
   The rule-4 test is widened: text may be read, nothing may be changed.
-- [ ] 4. **Runs and sorting, tests first** (`shared/src/list/`): start a
+- [x] 4. **Runs and sorting, tests first** (`shared/src/list/`): start a
   year (only the agent, only one at a time, never past five, never
   reaching back before the last year is finished), the read jobs, the
   no-AI sort into people and "Not contacts", matching Google Contacts
   and the phone file by address and phone number.
-- [ ] 5. **The AI look, tests first** (`shared/src/ai/claude.ts`,
+- [x] 5. **The AI look, tests first** (`shared/src/ai/claude.ts`,
   `shared/src/list/think.ts`): one call per likely person through
   `withAiBudget`, with a pretend AI in tests. At the limit the run
   pauses, keeps everything, and resumes without paying for anyone twice.
-- [ ] 6. **Her answers, tests first** (`shared/src/list/confirm.ts`): Yes
+- [x] 6. **Her answers, tests first** (`shared/src/list/confirm.ts`): Yes
   (through the same code as Add by hand), No, Change, "Yes to all ten",
   the tick list, "add this detail?", pulling someone out of "Not
   contacts". A test proves this file is the only way a proposal becomes
   a contact.
-- [ ] 7. **The phone file** (`shared/src/list/vcard.ts`): read a .vcf,
+- [x] 7. **The phone file** (`shared/src/list/vcard.ts`): read a .vcf,
   keep people, throw the file away.
-- [ ] 8. **Worker**: the new job kinds; housekeeping restarts a paused run
+- [x] 8. **Worker**: the new job kinds; housekeeping restarts a paused run
   when the limit allows.
-- [ ] 9. **Server functions** (`app/src/list/*.functions.ts`), each behind
+- [x] 9. **Server functions** (`app/src/list/*.functions.ts`), each behind
   `signedInOnly`, agent only, workspace from the session.
-- [ ] 10. **Screens**: the card on Contacts (each state in plain words),
+- [x] 10. **Screens**: the card on Contacts (each state in plain words),
   the confirm page (ten cards, Keep going / That's enough for today),
   the tick list, "Not contacts", the phone-file upload, where a detail
   came from on the contact page, the contacts line on Settings.
-- [ ] 11. **Household warning** carried from Build 3.
-- [ ] 12. **Self-check**: all tests, typecheck, build; the screens at phone
+- [x] 11. **Household warning** carried from Build 3.
+- [x] 12. **Self-check**: all tests, typecheck, build; the screens at phone
   width in light and dark with made-up mail on a local database; the
   "Done when" as far as possible without a real person; the real cost
   per person worked out from the made-up run's sizes.
-- [ ] 13. **Fresh reviewer**; fix what it finds.
-- [ ] 14. Help page, `CLAUDE.md`, `.env.example`, `render.yaml`.
+- [x] 13. **Fresh reviewer**; fix what it finds.
+- [x] 14. Help page, `CLAUDE.md`, `.env.example`, `render.yaml`.
 - [ ] 15. **Show Eric**, and stop.
 
 ## Review focus
@@ -100,3 +100,44 @@ use made-up mail and a pretend AI; no real mailbox and no paid call.
   service switched on in the Google project.
 - The .vcf export from a real iPhone.
 - The "Done when" on Amy's real mail.
+
+## Fresh review (Nov 18, 2026)
+
+An independent reviewer read the whole change. Found sound: only her
+answer makes a contact; the wall; mail and Google Contacts are only read;
+one year per tap and never a sixth; the job list; the names used in
+Anthropic's library.
+
+Fixed, each with a test:
+
+1. An AI answer that was declined or cut short threw an error, so its
+   cost went unrecorded and the year stalled on that person. Now it
+   becomes a card she fills in herself, and the cost is recorded.
+2. One message made of unclosed markup could freeze the worker for every
+   workspace. Message text is now read in a single pass with a size cap.
+3. An older copy of a person could be written back over her answer while
+   Google Contacts or the phone file was being taken in. Those steps now
+   hold the rows until they are saved.
+4. A slow AI turn could outlast the worker's time for one job and be
+   started again beside itself, paying twice. A turn now stops taking new
+   people after 100 seconds, and checks each person is still waiting
+   before asking.
+5. A name, company or "referred by" from the AI must now appear in the
+   messages, like every other detail.
+6. A contact detail must be in what the person wrote, never in her own
+   messages (her signature).
+7. Two people who share a phone number but have their own addresses stay
+   two people.
+8. The phone file: a value ending in "=" no longer swallows the next line.
+9. Error reports and job reasons never carry the values a database step
+   was run with.
+
+Known and left, for Eric to see:
+
+- A call to the AI that times out may be charged by Anthropic without
+  SunnyDay recording it (the cost is only known from an answer). One
+  retry at most, so it is small.
+- An address that came only from Google Contacts or the phone is labelled
+  "from an email" when the person was also found in mail.
+- A Google contact holding two addresses that were already two separate
+  people stays two cards.

@@ -64,7 +64,8 @@ deletes data, or goes live. Those wait for Eric.
 TypeScript on Node 22, npm workspaces. TanStack Start (React, Vite, Nitro
 `node-server`), Tailwind v4 with semantic tokens, TanStack Query, Drizzle
 on PostgreSQL, Better Auth (Google), Zod at every boundary, Vitest,
-Sentry. Hosted on Render. `.npmrc` sets `legacy-peer-deps=true`; keep it.
+Sentry, Anthropic's own library (`@anthropic-ai/sdk`, in `shared` only).
+Hosted on Render. `.npmrc` sets `legacy-peer-deps=true`; keep it.
 
 ## Layout
 
@@ -145,6 +146,40 @@ State the server keeps (database pool, ready flag) hangs off one
 - **How they found her** (rule 6) is required when adding a person; a
   change keeps the original in the story.
 - **Put away** hides, never deletes. Delete for good arrives with Build 22.
+
+## List Builder (Build 4)
+
+- **Where it lives**: `shared/src/list/` (`rules.ts` browser-safe,
+  `runs.ts` starting and reading a year, `sort.ts` the no-AI sort,
+  `think.ts` the AI look, `confirm.ts` her answers, `vcard.ts` the phone
+  file), `shared/src/ai/claude.ts`, `app/src/list/`. The card sits at the
+  top of Contacts; the confirm page is `/contacts/build`.
+- **Only her tap reads a year** (`startYear`): one year at a time, never
+  more than five, never a new year while one is working or cards wait.
+- **Only `confirm.ts` makes a contact from a proposal**, through the same
+  code as Add by hand (`addContactIn`). A test holds this. Every List
+  Builder action is the agent's alone, never a helper's.
+- **Tables** (`ws`, behind the wall): `list_run`, `list_mail` (a working
+  copy of top lines, tidied away), `list_person`, `detail_source`; and
+  `mailbox.can_read_contacts`.
+- **Mail text is read for the AI and never kept**: not in the database, a
+  job, a log or an error report. Machine mail is never sent. At most 8
+  messages a person.
+- **The AI only proposes.** Every detail it returns must appear in the
+  text it was shown (`holdToTheMail`) and pass `cleanDetail`. How they
+  found her (rule 6) is filled only when the mail plainly says it; the
+  default is "Don't remember".
+- **The one file that calls Claude** is `shared/src/ai/claude.ts`
+  (`claude-haiku-5-5`). Callers wrap it in `withAiBudget`; a test fails
+  any other import. `ANTHROPIC_API_KEY` is set on the worker only; with
+  none, a run reads and sorts, then pauses and says so.
+- **At the limit** a run pauses, keeps everything, and carries on from
+  where it stopped; nobody is paid for twice.
+- **Google Contacts** are read with a read-only permission
+  (`google-contacts.ts`, asking only). The phone file (.vcf) has its
+  photos taken out in the browser and is never stored.
+- **Where a detail came from** is kept per detail (`detail_source`) and
+  shown on the contact page.
 
 ## Screens
 

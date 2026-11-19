@@ -6,13 +6,14 @@ import { fileURLToPath } from 'node:url'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ThinkInput, ThinkOutput, Thinker } from '../src/ai/claude.js'
-import { UNSURE, thinkPrompt } from '../src/ai/claude.js'
+import { UNSURE, readAnswer, thinkPrompt } from '../src/ai/claude.js'
+import { scrubReport, withoutValues } from '../src/errors.js'
 import { aiBudget, setAiLimit } from '../src/ai/spend.js'
 import { getContact, listContacts } from '../src/contacts/store.js'
 import { aiSpend, contact, job, listMail, listPerson, listRun, mailMessage, workspace } from '../src/db/schema/index.js'
 import { inWorkspace } from '../src/db/workspace.js'
 import { addTicked, keepDetails, listPage, listStatus, pullOut, sayNo, sayYes, yesToAll } from '../src/list/confirm.js'
-import { takeInPeople } from '../src/list/people.js'
+import { PeopleBook, takeInPeople } from '../src/list/people.js'
 import { cardNeeds, clientStagesFor, defaultsFor, looksAutomated, minutesFor, phoneKey, sourceLine, stageIn, withoutPhotos, yesInput, type CardView } from '../src/list/rules.js'
 import { GOOGLE_PART, ListRefused, readRunPage, readRunPeople, startYear, type ListDeps } from '../src/list/runs.js'
 import { isMachine, recipientsIn, sortRun } from '../src/list/sort.js'
@@ -223,6 +224,31 @@ describe('the rules', () => {
     expect(tidyMailText('x'.repeat(9000)).length).toBe(2000)
   })
 
+  it('a message built to stall the reader is read in a moment, and style or script never counts as words', () => {
+    const began = Date.now()
+    expect(htmlToText('<'.repeat(2_000_000)).length).toBeLessThanOrEqual(200_000)
+    expect(htmlToText('<style>p{}'.repeat(300_000))).toBe('')
+    expect(tidyMailText('<'.repeat(2_000_000)).length).toBe(2000)
+    expect(Date.now() - began).toBeLessThan(2000)
+    expect(htmlToText('<head><title>t</title></head><div>One</div><script>var a = "<b>"</script><p>Two</p><br/>Three <b>bold</b> 3 < 4').replace(/\s+/g, ' ').trim()).toBe('One Two Three bold 3 < 4')
+  })
+
+  it('an AI answer that was declined, cut short or not in the agreed shape becomes a card she fills in herself', () => {
+    const good = { ...UNSURE, kind: 'lead', side: 'buyer', why: 'Asked about homes.' }
+    expect(readAnswer('end_turn', [{ type: 'text', text: JSON.stringify(good) }])).toMatchObject({ kind: 'lead', side: 'buyer' })
+    expect(readAnswer('refusal', [{ type: 'text', text: 'I cannot help with that.' }])).toEqual(UNSURE)
+    expect(readAnswer('max_tokens', [{ type: 'text', text: '{"name": "Pa' }])).toEqual(UNSURE)
+    expect(readAnswer('end_turn', [{ type: 'text', text: 'not the agreed shape' }])).toEqual(UNSURE)
+    expect(readAnswer('end_turn', [{ type: 'text', text: '{"kind":"king"}' }])).toEqual(UNSURE)
+    expect(readAnswer('end_turn', [])).toEqual(UNSURE)
+  })
+
+  it('an error leaving the server never carries the values a database step was run with', () => {
+    const message = 'Failed query: insert into "ws"."contact" ("full_name") values ($1)\nparams: Pat Buyer,pat@example.com'
+    expect(withoutValues(message)).toBe('Failed query: insert into "ws"."contact" ("full_name") values ($1)')
+    expect(JSON.stringify(scrubReport({ message, exception: { values: [{ value: message }] } }))).not.toContain('Pat Buyer')
+  })
+
   it('chooses at most eight messages: the oldest two and the newest six', () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ sentAt: new Date(NOW - i * DAY), i }))
     expect(pickMessages(many).map((m) => m.i)).toEqual([19, 18, 5, 4, 3, 2, 1, 0])
@@ -240,6 +266,24 @@ describe('the rules', () => {
     expect(held.details.map((d) => d.value)).toEqual(['360-555-0142', '12 Cedar Lane, Sequim, WA 98382'])
     expect(held.details[0]!.source).toEqual({ from: 'email', at: '2025-03-03', subject: 'Hi' })
     expect(held.proposal.why).toBe('Wow. A lead.')
+  })
+
+  it('her own signature is never taken for the person\'s details, and a name, company or referrer must be in the words', () => {
+    const messages = [
+      { n: 1, date: '2025-03-03', fromHer: false, subject: 'Closing', text: 'Dana Title here, from Peninsula Escrow. Reach me on 360-555-0101.' },
+      { n: 2, date: '2025-03-04', fromHer: true, subject: 'Re: Closing', text: 'Thanks Dana.\nAmy Agent\n360-555-0999\n9 Harbor Rd, Port Angeles' },
+    ]
+    const business = holdToTheMail({ ...UNSURE, kind: 'business', businessRole: 'title', name: 'Dana Title', company: 'Peninsula Escrow', details: [
+      { kind: 'phone', value: '360-555-0101', label: 'work', fromMessage: 1 },
+      { kind: 'phone', value: '360-555-0999', label: 'mobile', fromMessage: 2 },
+      { kind: 'address', value: '9 Harbor Rd, Port Angeles', label: null, fromMessage: 2 },
+    ] }, messages)
+    expect(business.details.map((d) => d.value)).toEqual(['360-555-0101'])
+    expect(business).toMatchObject({ name: 'Dana Title', proposal: { company: 'Peninsula Escrow' } })
+    const steered = holdToTheMail({ ...UNSURE, kind: 'business', businessRole: 'title', name: 'Someone Invented', company: 'Made Up Co' }, messages)
+    expect(steered).toMatchObject({ name: null, proposal: { company: null } })
+    const lead = holdToTheMail({ ...UNSURE, kind: 'lead', side: 'buyer', foundBy: 'referral', foundByOther: 'Bob Nobody' }, messages)
+    expect(lead.proposal).toMatchObject({ foundBy: 'referral', foundByOther: null })
   })
 
   it('the question sent to the AI carries the messages and nothing about any other person', () => {
@@ -262,6 +306,13 @@ describe('the phone contact file', () => {
       { name: 'Paula Phoneonly', emails: ['paula@example.com'], phones: [{ value: '(360) 555-0155', label: 'mobile' }], addresses: ['4 Oak St, Sequim, WA, 98382, USA'], company: 'Oak Realty' },
       { name: 'José García', emails: [], phones: [{ value: '360-555-0166', label: 'mobile' }], addresses: [], company: null },
     ])
+  })
+
+  it('a value that ends with "=" does not swallow the next line, or the person', () => {
+    const odd = ['BEGIN:VCARD', 'FN:Una Url', 'TEL:360-555-0177', 'URL:https://example.com/?id=', 'END:VCARD', 'BEGIN:VCARD', 'FN:Next Person', 'TEL:360-555-0188', 'END:VCARD'].join('\n')
+    expect(readContactFile(odd).map((p) => p.name)).toEqual(['Una Url', 'Next Person'])
+    const old = ['BEGIN:VCARD', 'VERSION:2.1', 'FN;ENCODING=QUOTED-PRINTABLE:Long=', 'Name', 'TEL:360-555-0199', 'END:VCARD'].join('\n')
+    expect(readContactFile(old).map((p) => p.name)).toEqual(['LongName'])
   })
 
   it('photos are taken out before the file leaves the phone', () => {
@@ -450,6 +501,25 @@ describe('the phone file and Google Contacts', () => {
     expect(await byEmail('quinn@example.com')).toMatchObject({ state: 'no', details: [] })
     const ticks = await listPage(db, a, 'ticks')
     expect(ticks.view === 'ticks' && ticks.people.map((p) => [p.name, p.from])).toEqual([['Gina Googleonly', 'Google Contacts'], ['Paula Phoneonly', 'your phone']])
+  })
+
+  it('a couple on one home phone, each with their own address, stay two people', async () => {
+    class Undo extends Error {}
+    let names: Array<string | null> = []
+    await inWorkspace(db, b, async (tx) => {
+      const couple = [
+        { name: 'Hal Home', emails: ['hal@example.com'], phones: [{ value: '360-555-0300', label: 'home' }], addresses: [], company: null },
+        { name: 'Hana Home', emails: ['hana@example.com'], phones: [{ value: '360-555-0300', label: 'home' }], addresses: [], company: null },
+        // No address of their own: the number is all there is to know them by, so this is Hal again.
+        { name: 'Hal', emails: [], phones: [{ value: '(360) 555-0300', label: 'home' }], addresses: [], company: null },
+      ]
+      expect(await takeInPeople(tx, b, 'google', couple)).toEqual({ fresh: 2, known: 1 })
+      names = (await PeopleBook.load(tx, b)).rows.map((r) => r.name)
+      throw new Undo()
+    }).catch((err) => {
+      if (!(err instanceof Undo)) throw err
+    })
+    expect(names.sort()).toEqual(['Hal Home', 'Hana Home'])
   })
 
   it('"add this detail?": a new number for someone already in Contacts is offered, and saved only if she keeps it', async () => {
