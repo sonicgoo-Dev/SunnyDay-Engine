@@ -66,3 +66,27 @@ a row never count as a failure.
    the Gmail reading back up.
 3. Watch the worker log for "picked a set-aside mailbox back up" and for
    any "slow down" lines. A year of mail takes an hour or two at this pace.
+
+## From the fresh review (no blockers; all fixed)
+
+- **Never pay the AI twice in one year.** In a second go, someone the AI
+  already gave a verdict on (a proposal, or "nobody") keeps it and is not
+  looked at again. Trade-off, accepted: in a second go of a later year, a
+  contact from an earlier year who appears only in the newly read part is
+  not looked at for new details.
+- **Waiting has a ceiling.** After 24 waits in a row (two hours) "slow
+  down" counts as an ordinary failure. Google's own trouble (5xx) is tried
+  a few times in place and then counts as a failure at once.
+- **The pace is per mailbox**, not per pass (`paceAs`), so a wait carries
+  from one job to the next.
+- **Only newly kept messages are counted**, so a turn tried twice cannot
+  count one twice. The oldest message read is noted as reading goes, for
+  the lost-place restart.
+- **The AI look** lets a "slow down" through, so its turn waits instead of
+  running past its time.
+
+## Order when putting it live
+
+The app must have applied table change 0006 before the worker starts, and
+the worker must start on this code, not the old one. So: merge, confirm
+the app is live, then resume the worker and confirm which commit it runs.

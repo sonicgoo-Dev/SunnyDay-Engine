@@ -284,3 +284,56 @@ describe('when Google has forgotten the place in its list', () => {
     expect(later.asked.filter((id) => Number(id.slice(1)) < 9)).toEqual([])
   })
 })
+
+describe('a year read in two goes never pays the AI twice for one person', () => {
+  it('someone the AI called "nobody" in the first go is not asked about again, and waiting people are each looked at once', async () => {
+    const [w] = await db.insert(workspace).values({ name: 'Two goes' }).returning({ id: workspace.id })
+    const ws = w!.id
+    const boxId = await saveGmailConnection(db, KEY, ws, { address: AMY, refreshToken: 'x' })
+    const { runId } = await startYear(db, ws, null, new Date(NOW))
+    const asked: string[] = []
+    const verdicts: Thinker = async (input) => {
+      const who = input.addresses[0] ?? ''
+      asked.push(who)
+      return { result: who === 'recent@example.com' ? { ...UNSURE, kind: 'nobody', sure: 'high', why: 'A stranger.' } : { ...UNSURE, kind: 'lead', side: 'buyer', sure: 'high', why: 'Asked about homes.' }, costDollars: 0.001 }
+    }
+    const g = pretendGmail(year, { pageSize: 20 })
+    const d: ListDeps = { db, connectionKey: KEY, google, fetch: g.doFetch, thinker: verdicts, now: () => new Date(NOW) }
+    const person = async (email: string) => (await inWorkspace(db, ws, (tx) => tx.select().from(listPerson))).find((p) => p.emails.includes(email))!
+
+    // First go: the newest 20 messages hold "recent" and "middle". Given up on, sorted, and only ONE of the two looked at so far.
+    expect(await readRunPage(d, ws, runId, boxId)).toBe('more')
+    await giveUpOnPart(db, ws, runId, boxId)
+    await sortRun(db, ws, runId)
+    expect(await thinkBatch(d, ws, runId, 1)).toBe('more')
+    expect(asked).toEqual(['recent@example.com'])
+    expect(await person('recent@example.com')).toMatchObject({ bucket: 'not_contact', state: 'new' })
+    // Frozen here, with "middle" still waiting for its look and a think job queued: the state the live run may be in.
+    expect((await inWorkspace(db, ws, (tx) => tx.select().from(listRun).where(eq(listRun.id, runId))))[0]!.status).toBe('thinking')
+
+    expect(await pickUpLeftOutMail(db, ws)).toBe(1)
+    // The queued look finds the year is being read again and steps aside without asking the AI anything.
+    expect(await thinkBatch(d, ws, runId, 5)).toBe('gone')
+    expect(asked).toHaveLength(1)
+    for (let i = 0; i < 10 && (await readRunPage(d, ws, runId, boxId)) === 'more'; i++);
+    await sortRun(db, ws, runId)
+    let out = await thinkBatch(d, ws, runId, 5)
+    for (let i = 0; i < 10 && out === 'more'; i++) out = await thinkBatch(d, ws, runId, 5)
+    expect(out).toBe('ready')
+    // "recent" was asked about once only, though more of their mail turned up. "middle" and "early" once each.
+    expect(asked.sort()).toEqual(['early@example.com', 'middle@example.com', 'recent@example.com'])
+    expect(await person('recent@example.com')).toMatchObject({ bucket: 'not_contact', inCount: 5, outCount: 5 })
+    expect(await person('middle@example.com')).toMatchObject({ state: 'proposed', inCount: 4, outCount: 4 })
+    const run = (await inWorkspace(db, ws, (tx) => tx.select().from(listRun).where(eq(listRun.id, runId))))[0]!
+    expect(run).toMatchObject({ status: 'ready', messagesRead: 30 })
+  })
+})
+
+describe('Google’s own trouble (not a speed limit)', () => {
+  it('is tried a few times, then is an ordinary failure: it is counted, so it cannot go on unseen', async () => {
+    const g = pretendGmail([{ id: 'm', ms: NOW, from: 'a@example.com' }], { refuse: () => ({ status: 503 }) })
+    const err = await messageTopLines(g.doFetch, 't-5xx', 'm').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(GoogleError)
+    expect(err).not.toBeInstanceOf(GoogleBusy)
+  })
+})

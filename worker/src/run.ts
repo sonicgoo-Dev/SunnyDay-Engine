@@ -19,6 +19,7 @@ import {
   giveUpOnPart,
   pickUpLeftOutMail,
   postpone,
+  timesWaited,
   noteMailboxProblem,
   noteRunProblem,
   readJob,
@@ -144,6 +145,8 @@ const reasonOf = (err: unknown) => (err instanceof Error ? `${err.name}: ${witho
 /** Works through the jobs that are due, for at most `budgetMs`. Returns how many it did. */
 /** How long a job waits after Google asked SunnyDay to slow down and went on asking. */
 const SLOW_DOWN_WAIT_MINUTES = 5
+/** After this many waits in a row (two hours), "slow down" counts as a failure. */
+const MAX_WAITS = 24
 
 export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<{ done: number; failed: number; waited: number }> {
   const stopAt = Date.now() + budgetMs
@@ -158,7 +161,8 @@ export async function workDueJobs(deps: WorkerDeps, budgetMs = 20_000): Promise<
       done++
     } catch (err) {
       // Google asking SunnyDay to slow down is not a failure. The job waits a few minutes and is not counted toward giving up.
-      if (err instanceof Error && err.name === 'GoogleBusy') {
+      // After two hours of it, though, it is treated as a failure like any other, so it cannot go on unseen.
+      if (err instanceof Error && err.name === 'GoogleBusy' && timesWaited(j) < MAX_WAITS) {
         waited++
         await postpone(deps.db, j, SLOW_DOWN_WAIT_MINUTES, reasonOf(err))
         deps.log?.(`[worker] job ${j.id} (${j.kind}): Google asked SunnyDay to slow down; waiting ${SLOW_DOWN_WAIT_MINUTES} minutes. ${reasonOf(err)}`)

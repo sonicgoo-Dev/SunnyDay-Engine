@@ -122,7 +122,13 @@ describe('the worker', () => {
     expect(waiting.every((j) => j.runAt.getTime() > Date.now() + 4 * 60_000 && j.runAt.getTime() < Date.now() + 6 * 60_000)).toBe(true)
     expect((await listMailboxes(db, a))[0]).toMatchObject({ status: 'connected', lastProblem: null })
     expect(lines[0]).toMatch(/Google asked SunnyDay to slow down; waiting 5 minutes.*reason userRateLimitExceeded/)
+    // It keeps count of the waits, and after two hours of them it is a failure like any other, so it is seen.
+    expect(waiting.every((j) => j.payload.waits === 8)).toBe(true)
+    await db.update(job).set({ runAt: new Date(), payload: { ...waiting[0]!.payload, waits: 24 } }).where(eq(job.id, waiting[0]!.id))
+    expect(await workDueJobs(deps)).toEqual({ done: 0, failed: 1, waited: 0 })
     behave = 'fine'
+    await db.update(job).set({ runAt: new Date() }).where(eq(job.status, 'queued'))
+    await workDueJobs(deps)
   })
 
   it('a mailbox whose password stopped working is marked, and not read again until reconnected', async () => {

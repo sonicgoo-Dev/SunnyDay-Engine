@@ -24,19 +24,30 @@ const SLOW_DOWN_WAITS = [2, 4, 8, 16]
 /** Swappable so tests do not really wait. */
 export const gmailClock = { now: () => Date.now(), sleep: (ms: number) => new Promise<void>((done) => setTimeout(done, ms)) }
 
-// The next moment each mailbox may be asked, keyed by its pass. One worker
-// process reads all mail, so this one table is the whole pace.
+// The next moment each mailbox may be asked. One worker process reads all
+// mail, so this one table is the whole pace. A pass is good for an hour and
+// each job fetches its own, so the pace is kept per mailbox, not per pass:
+// callers say which mailbox a pass belongs to (paceAs).
 const nextSlot = new Map<string, number>()
+const mailboxOf = new Map<string, string>()
+/** Says which mailbox a pass belongs to, so every job reading that mailbox shares one pace. */
+export function paceAs(accessToken: string, mailboxId: string): void {
+  if (mailboxOf.size > 500) mailboxOf.clear()
+  mailboxOf.set(accessToken, mailboxId)
+}
+const paceKey = (accessToken: string) => mailboxOf.get(accessToken) ?? accessToken
 async function takeTurn(accessToken: string): Promise<void> {
+  const key = paceKey(accessToken)
   const now = gmailClock.now()
   if (nextSlot.size > 500) for (const [k, at] of nextSlot) if (at < now - 60_000) nextSlot.delete(k)
-  const at = Math.max(now, nextSlot.get(accessToken) ?? 0)
-  nextSlot.set(accessToken, at + 1000 / GMAIL_PER_SECOND)
+  const at = Math.max(now, nextSlot.get(key) ?? 0)
+  nextSlot.set(key, at + 1000 / GMAIL_PER_SECOND)
   if (at > now) await gmailClock.sleep(at - now)
 }
 /** Everyone reading this mailbox waits at least this long (used after a "slow down" answer). */
 function holdEveryone(accessToken: string, ms: number): void {
-  nextSlot.set(accessToken, Math.max(nextSlot.get(accessToken) ?? 0, gmailClock.now() + ms))
+  const key = paceKey(accessToken)
+  nextSlot.set(key, Math.max(nextSlot.get(key) ?? 0, gmailClock.now() + ms))
 }
 
 /** Google's own short code for a refusal, e.g. "rateLimitExceeded". Only ever a code word: letters and underscores. */
@@ -50,9 +61,11 @@ async function refusalReason(res: Response): Promise<string | null> {
   }
 }
 
-/** "Slow down" (too many requests) or "try again" (Google's own trouble): worth waiting for, never a broken mailbox. */
-const SLOW_DOWN_REASONS = ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded', 'RESOURCE_EXHAUSTED', 'backendError']
-const worthWaitingFor = (status: number, reason: string | null) => status === 429 || status >= 500 || (status === 403 && reason !== null && SLOW_DOWN_REASONS.includes(reason))
+/** "Slow down": too many requests. The mailbox is fine; SunnyDay only has to wait. */
+const SLOW_DOWN_REASONS = ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded', 'RESOURCE_EXHAUSTED']
+const slowDown = (status: number, reason: string | null) => status === 429 || (status === 403 && reason !== null && SLOW_DOWN_REASONS.includes(reason))
+/** Google's own trouble (5xx): worth a few tries here, but if it goes on it is an ordinary failure, counted like any other. */
+const worthWaitingFor = (status: number, reason: string | null) => slowDown(status, reason) || status >= 500
 
 async function gmailGet(doFetch: Fetch, accessToken: string, path: string, query: Record<string, string | string[]> = {}): Promise<unknown> {
   const q = new URLSearchParams()
@@ -65,7 +78,7 @@ async function gmailGet(doFetch: Fetch, accessToken: string, path: string, query
     const reason = await refusalReason(res)
     if (!worthWaitingFor(res.status, reason)) throw new GoogleError('reading the mailbox', res.status, reason)
     const wait = SLOW_DOWN_WAITS[tries]
-    if (wait === undefined) throw new GoogleBusy('reading the mailbox', res.status, reason)
+    if (wait === undefined) throw slowDown(res.status, reason) ? new GoogleBusy('reading the mailbox', res.status, reason) : new GoogleError('reading the mailbox', res.status, reason)
     // Google may say how long to wait; never longer than half a minute here (longer is the job's wait, not this request's).
     const asked = Number(res.headers.get('retry-after'))
     const ms = Math.min(30_000, Math.max(wait * 1000, Number.isFinite(asked) && asked > 0 ? asked * 1000 : 0))

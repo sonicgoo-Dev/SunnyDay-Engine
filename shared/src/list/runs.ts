@@ -10,7 +10,7 @@ import type { Db } from '../db/client.js'
 import { listMail, listPerson, listRun, mailbox, type RunPart } from '../db/schema/index.js'
 import { inWorkspace, type InWorkspace } from '../db/workspace.js'
 import { enqueue } from '../jobs/queue.js'
-import { messageIdPage, messageTopLines, type MessageSummary } from '../mail/gmail.js'
+import { messageIdPage, messageTopLines, paceAs, type MessageSummary } from '../mail/gmail.js'
 import { ContactsNotAllowed, googleContactsPage, type OutsidePerson } from '../mail/google-contacts.js'
 import { GoogleError, ReconnectNeeded, accessTokenFrom, type Fetch, type GoogleClient } from '../mail/google-token.js'
 import { ImapSignInRefused, imapWayIn, readImapWindow, type ImapTextReader, type ImapWindowReader } from '../mail/imap.js'
@@ -200,17 +200,32 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
     return 'done'
   }
 
-  /** Keeps what was just read: only what falls inside the year asked for (the mail server's own search is by whole days). */
-  const keep = async (got: Array<{ summary: MessageSummary; bulk: boolean }>, change: Partial<RunPart>) => {
+  /**
+   * Keeps what was just read: only what falls inside the year asked for
+   * (the mail server's own search is by whole days). Counts only what was
+   * newly kept, so a turn tried twice never counts a message twice. For
+   * Gmail it also notes the oldest message read, in case Google later
+   * forgets the place in its list.
+   */
+  const keep = async (got: Array<{ summary: MessageSummary; bulk: boolean }>, change: Partial<RunPart>, noteOldest = false) => {
     const inWindow = got.filter((l) => l.summary.sentAt >= run.fromAt && l.summary.sentAt < run.toAt)
     await inWorkspace(db, workspaceId, async (tx) => {
+      let added = 0
       for (let i = 0; i < inWindow.length; i += 500) {
-        await tx
+        const rows = await tx
           .insert(listMail)
           .values(inWindow.slice(i, i + 500).map((l) => ({ ...l.summary, bulk: l.bulk, workspaceId, runId, mailboxId })))
           .onConflictDoNothing()
+          .returning({ id: listMail.id })
+        added += rows.length
       }
-      await markPart(tx, workspaceId, runId, mailboxId, change, inWindow.length)
+      let also = change
+      if (noteOldest && got.length) {
+        const [fresh] = await tx.select({ parts: listRun.parts }).from(listRun).where(eq(listRun.id, runId)).for('update')
+        const oldest = Math.min(fresh?.parts[mailboxId]?.oldestMs ?? Infinity, ...got.map((l) => l.summary.sentAt.getTime()))
+        also = { ...change, oldestMs: oldest }
+      }
+      await markPart(tx, workspaceId, runId, mailboxId, also, added)
     })
   }
 
@@ -219,6 +234,7 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
   try {
     if (box.kind === 'gmail') {
       const accessToken = await accessTokenFrom(deps.fetch, deps.google, unseal(deps.connectionKey, workspaceId, box.sealed))
+      paceAs(accessToken, box.id)
       const window = { afterMs: run.fromAt.getTime(), beforeMs: part.beforeMs ?? run.toAt.getTime() }
       let page: Awaited<ReturnType<typeof messageIdPage>>
       try {
@@ -228,8 +244,11 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
         // newest first, so reading starts again just above the oldest message already kept: nothing is
         // skipped, and almost nothing is read twice.
         if (!(err instanceof GoogleError) || err.status !== 400 || !part.pageToken) throw err
-        const [oldest] = await inWorkspace(db, workspaceId, (tx) => tx.select({ at: min(listMail.sentAt) }).from(listMail).where(and(eq(listMail.runId, runId), eq(listMail.mailboxId, mailboxId))))
-        const beforeMs = oldest?.at ? Math.min(window.beforeMs, new Date(oldest.at).getTime() + 3_600_000) : window.beforeMs
+        // The oldest message read is noted as reading goes. A year begun before that was noted falls back on the
+        // oldest top line still kept (a little of the mail already sorted away is then read once more; none is skipped).
+        const [kept] = part.oldestMs === undefined ? await inWorkspace(db, workspaceId, (tx) => tx.select({ at: min(listMail.sentAt) }).from(listMail).where(and(eq(listMail.runId, runId), eq(listMail.mailboxId, mailboxId)))) : []
+        const oldestMs = part.oldestMs ?? (kept?.at ? new Date(kept.at).getTime() : undefined)
+        const beforeMs = oldestMs !== undefined ? Math.min(window.beforeMs, oldestMs + 3_600_000) : window.beforeMs
         await inWorkspace(db, workspaceId, async (tx) => {
           const [fresh] = await tx.select().from(listRun).where(eq(listRun.id, runId)).for('update')
           if (!fresh?.parts[mailboxId]) return
@@ -246,7 +265,7 @@ export async function readRunPage(deps: ListDeps, workspaceId: string, runId: st
       const fresh = page.ids.filter((id) => !known.has(id))
       // Saved a little at a time. If Google asks SunnyDay to slow down half-way, the next turn starts where this one stopped.
       for (let i = 0; i < fresh.length; i += SAVE_EVERY) {
-        await keep(await inBatches(fresh.slice(i, i + SAVE_EVERY), PAGE_AT_ONCE, (id) => messageTopLines(deps.fetch, accessToken, id)), {})
+        await keep(await inBatches(fresh.slice(i, i + SAVE_EVERY), PAGE_AT_ONCE, (id) => messageTopLines(deps.fetch, accessToken, id)), {}, true)
       }
       next = page.next ? { pageToken: page.next } : { done: true }
     } else {
@@ -293,6 +312,7 @@ export async function readRunPeople(deps: ListDeps, workspaceId: string, runId: 
   else {
     try {
       const accessToken = await accessTokenFrom(deps.fetch, deps.google, unseal(deps.connectionKey, workspaceId, box.sealed))
+      paceAs(accessToken, box.id)
       let pageToken: string | undefined
       for (let i = 0; i < CONTACT_PAGES; i++) {
         const page = await googleContactsPage(deps.fetch, accessToken, pageToken)

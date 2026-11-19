@@ -7,7 +7,7 @@ import type { Db } from '../db/client.js'
 import { mailMessage, mailbox, type MailboxKind, type MailboxRole, type MailboxStatus } from '../db/schema/index.js'
 import { inWorkspace } from '../db/workspace.js'
 import { enqueue } from '../jobs/queue.js'
-import { messageIdsSince, messageSummary, type MessageSummary } from './gmail.js'
+import { messageIdsSince, messageSummary, paceAs, type MessageSummary } from './gmail.js'
 import { ImapSignInRefused, NO_FOLDER, imapWayIn, readImapInbox, type ImapReader, type ImapWayIn } from './imap.js'
 import { ReconnectNeeded, accessTokenFrom, revoke, type Fetch, type GoogleClient } from './google-token.js'
 
@@ -115,6 +115,7 @@ export async function readMailbox(deps: { db: Db; connectionKey: string; google:
 
   try {
     const accessToken = await accessTokenFrom(deps.fetch, google, unseal(connectionKey, workspaceId, box.sealed))
+    paceAs(accessToken, mailboxId)
     const afterMs = box.cursor.afterMs ?? now().getTime() - FIRST_READ_DAYS * 86_400_000
     // A minute of overlap, so nothing that arrived mid-read is missed; duplicates are ignored on insert.
     const ids = await messageIdsSince(deps.fetch, accessToken, afterMs - 60_000)

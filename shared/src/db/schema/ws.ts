@@ -260,7 +260,7 @@ export const storyEvent = wsSchema.table(
 export const LIST_RUN_STATUSES = ['reading', 'sorting', 'thinking', 'paused', 'ready'] as const
 export type ListRunStatus = (typeof LIST_RUN_STATUSES)[number]
 /** Where one mailbox's (or Google Contacts') reading has got to within a run. */
-export type RunPart = { done: boolean; pageToken?: string; afterUid?: number; /** The second mailbox: its inbox is read, and its sent folder is next. */ inboxDone?: boolean; sentAfterUid?: number; problem?: string; /** How many times reading this part was given up on. It is picked up again by itself, three times at most. */ gaveUp?: number; /** Gmail: read only mail older than this, after its place in the list was lost. */ beforeMs?: number }
+export type RunPart = { done: boolean; pageToken?: string; afterUid?: number; /** The second mailbox: its inbox is read, and its sent folder is next. */ inboxDone?: boolean; sentAfterUid?: number; problem?: string; /** How many times reading this part was given up on. It is picked up again by itself, three times at most. */ gaveUp?: number; /** Gmail: read only mail older than this, after its place in the list was lost. */ beforeMs?: number; /** Gmail: the oldest message read so far. */ oldestMs?: number }
 
 /**
  * One year of mail she asked List Builder to read. Year 1 is the last 12

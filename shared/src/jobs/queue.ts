@@ -83,9 +83,20 @@ export async function tidyFinished(db: Query): Promise<void> {
  * (Google asking SunnyDay to slow down): nothing is wrong, so it must
  * never add up to giving up.
  */
-export async function postpone(db: Query, j: Pick<Job, 'id'>, minutes: number, reason: string): Promise<void> {
+export async function postpone(db: Query, j: Pick<Job, 'id' | 'payload'>, minutes: number, reason: string): Promise<void> {
   await db
     .update(job)
-    .set({ status: 'queued', lockedAt: null, attempts: sql`greatest(${job.attempts} - 1, 0)`, lastError: reason.slice(0, 300), runAt: sql`now() + make_interval(mins => ${minutes})` })
+    .set({
+      status: 'queued',
+      lockedAt: null,
+      attempts: sql`greatest(${job.attempts} - 1, 0)`,
+      // How many times in a row it has waited, so waiting cannot go on unseen for ever.
+      payload: { ...j.payload, waits: timesWaited(j) + 1 },
+      lastError: reason.slice(0, 300),
+      runAt: sql`now() + make_interval(mins => ${minutes})`,
+    })
     .where(eq(job.id, j.id))
 }
+
+/** How many times in a row this job has been put back to wait. */
+export const timesWaited = (j: Pick<Job, 'payload'>) => (typeof j.payload.waits === 'number' ? j.payload.waits : 0)
