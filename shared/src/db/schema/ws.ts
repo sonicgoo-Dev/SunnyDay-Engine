@@ -42,7 +42,7 @@ export const mailbox = wsSchema.table(
     sealed: text('sealed').notNull(),
     status: text('status', { enum: MAILBOX_STATUSES }).notNull().default('connected'),
     // Where reading got to, so the next read starts there.
-    cursor: jsonb('cursor').$type<{ afterMs?: number; uidValidity?: string; lastUid?: number }>().notNull().default({}),
+    cursor: jsonb('cursor').$type<{ afterMs?: number; uidValidity?: string; lastUid?: number; /** The second mailbox's sent folder, numbered apart from its inbox. */ sent?: { uidValidity: string; lastUid: number } }>().notNull().default({}),
     lastReadAt: timestamp('last_read_at', { withTimezone: true }),
     lastProblem: text('last_problem'),
     // Whether Google's "see your contacts" permission was given (Build 4). Mail reading never depends on it.

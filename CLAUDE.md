@@ -100,9 +100,9 @@ State the server keeps (database pool, ready flag) hangs off one
   `CONNECTION_KEY`, tied to its workspace. The app and the worker hold the
   same key; never change it once mailboxes are connected.
 - **Reading only.** `shared/src/mail/gmail.ts` can only ask (one function,
-  GET). `imap.ts` opens a folder in the server's read-only mode: the inbox,
-  and for List Builder the sent folder too (Eric, Nov 18, 2026). The
-  everyday read asks for the inbox's envelopes only. Tests read both files and fail on any call that
+  GET). `imap.ts` opens a folder in the server's read-only mode: the inbox
+  and the sent folder (Eric, Nov 18, 2026), and no other. The everyday
+  read asks for envelopes only. Tests read both files and fail on any call that
   marks, moves, drafts, sends or deletes. Drafting and sending arrive in
   Build 8, in their own file, behind Approvals.
 - **What is kept** (`ws.mail_message`): who, when, subject and a short

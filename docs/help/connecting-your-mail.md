@@ -27,8 +27,9 @@ asked for, tap **Include my Google Contacts** in Settings.
 
 ## A second mailbox
 
-For an older address you still get mail at. SunnyDay reads it and never
-sends from it.
+For an older address you still get mail at. SunnyDay reads it, both what
+you receive there and what you send from it, and never sends from it
+itself.
 
 1. Open **Settings**.
 2. Under **A second mailbox**, type the **email address** and its **password**.

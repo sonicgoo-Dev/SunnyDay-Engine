@@ -34,7 +34,9 @@ const settings: WorkerSettings = { DATABASE_URL: URL, SENTRY_DSN: '', CONNECTION
 const wayIn = { host: 'imap.example.com', port: 993 as const, user: 'x@example.com', pass: 'good' }
 
 let behave: 'fine' | 'broken' | 'locked_out' = 'fine'
-const imap: ImapReader = async (_w, cursor) => {
+const imap: ImapReader = async (_w, cursor, opts) => {
+  // This pretend server keeps no sent folder.
+  if (opts.folder === 'sent') return { uidValidity: '', lastUid: 0, more: false, messages: [] }
   if (behave === 'broken') throw new Error('the mail server hung up')
   if (behave === 'locked_out') throw new ImapSignInRefused()
   const next = (cursor.lastUid ?? 0) + 1

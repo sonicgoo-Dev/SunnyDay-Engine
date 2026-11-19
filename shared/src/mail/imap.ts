@@ -42,8 +42,11 @@ export class ImapUnreachable extends Error {
 
 export type ImapCursor = { uidValidity?: string | undefined; lastUid?: number | undefined }
 export type ImapRead = { uidValidity: string; lastUid: number; messages: MessageSummary[]; more: boolean }
-/** Reads what is new in a mailbox's inbox. Swappable, so tests never touch a real server. */
-export type ImapReader = (wayIn: ImapWayIn, cursor: ImapCursor, opts: { firstReadSince: Date; cap: number }) => Promise<ImapRead>
+/** Reads what is new in one folder of a mailbox (the inbox unless told the sent folder). Swappable, so tests never touch a real server. */
+export type ImapReader = (wayIn: ImapWayIn, cursor: ImapCursor, opts: { firstReadSince: Date; cap: number; folder?: ImapFolder }) => Promise<ImapRead>
+/** What a read answers when the mail server keeps no sent folder. */
+export const NO_FOLDER = ''
+
 
 const short = (s: string | undefined | null, max: number) => (s ? s.slice(0, max) : null)
 
@@ -58,10 +61,6 @@ async function sentPathOf(client: ImapFlow): Promise<string | null> {
   const folders = await client.list()
   const marked = folders.find((f) => f.specialUse === '\\Sent')
   return (marked ?? folders.find((f) => SENT_NAMES.test(f.name)))?.path ?? null
-}
-
-async function openInbox(wayIn: ImapWayIn) {
-  return (await openFolder(wayIn, 'inbox'))!
 }
 
 /** Signs in and opens one folder read only. The only place a mailbox is opened. Null when there is no sent folder to open. */
@@ -125,9 +124,12 @@ function summaryOf(uidValidity: string, m: FetchMessageObject, folder: ImapFolde
 }
 
 export const readImapInbox: ImapReader = async (wayIn, cursor, opts) => {
-  const { client, box, uidValidity } = await openInbox(wayIn)
+  const folder = opts.folder ?? 'inbox'
+  const opened = await openFolder(wayIn, folder)
+  if (!opened) return { uidValidity: NO_FOLDER, lastUid: 0, messages: [], more: false }
+  const { client, box, uidValidity } = opened
   try {
-    // The server renumbered the inbox (rare): start again from the look-back date.
+    // The server renumbered the folder (rare): start again from the look-back date.
     const sameNumbering = cursor.uidValidity === uidValidity && cursor.lastUid !== undefined
     const found = sameNumbering
       ? await client.search({ uid: `${cursor.lastUid! + 1}:*` }, { uid: true })
@@ -136,7 +138,7 @@ export const readImapInbox: ImapReader = async (wayIn, cursor, opts) => {
     const batch = uids.slice(0, opts.cap)
     const messages: MessageSummary[] = []
     if (batch.length) {
-      for await (const m of client.fetch(batch, { uid: true, envelope: true, internalDate: true }, { uid: true })) messages.push(summaryOf(uidValidity, m))
+      for await (const m of client.fetch(batch, { uid: true, envelope: true, internalDate: true }, { uid: true })) messages.push(summaryOf(uidValidity, m, folder))
     }
     const lastUid = batch.length ? batch[batch.length - 1]! : sameNumbering ? cursor.lastUid! : Math.max(0, Number(box.uidNext ?? 1) - 1)
     return { uidValidity, lastUid, messages, more: uids.length > batch.length }

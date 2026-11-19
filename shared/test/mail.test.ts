@@ -8,7 +8,7 @@ import { job, mailMessage, mailbox, workspace } from '../src/db/schema/index.js'
 import { inWorkspace } from '../src/db/workspace.js'
 import { parseSender } from '../src/mail/gmail.js'
 import { CONTACTS_SCOPE, GMAIL_SCOPES, MissingPermission, consentUrl, exchangeCode, type Fetch } from '../src/mail/google-token.js'
-import { ImapSignInRefused, imapWayIn, type ImapReader } from '../src/mail/imap.js'
+import { ImapSignInRefused, NO_FOLDER, imapWayIn, type ImapReader } from '../src/mail/imap.js'
 import { SecondMainMailbox, disconnectMailbox, ensureReadsQueued, listMailboxes, readMailbox, saveGmailConnection, saveImapConnection } from '../src/mail/mailboxes.js'
 import { openTestDb } from './db.js'
 
@@ -199,11 +199,20 @@ describe('a Gmail connection', () => {
 describe('a second mailbox, read only (olypen)', () => {
   const wayIn = { host: 'imap.olypen.com', port: 993 as const, user: 'amy@olypen.com', pass: 'MAILBOX-PASSWORD' }
   const seen: Array<{ cursor: unknown; cap: number }> = []
+  const sentSeen: unknown[] = []
+  let withSent = false
   const server =
     (messages: number): ImapReader =>
     async (given, cursor, opts) => {
-      seen.push({ cursor, cap: opts.cap })
       if (given.pass !== 'MAILBOX-PASSWORD') throw new ImapSignInRefused()
+      // The sent folder, numbered apart from the inbox: one reply of hers, once.
+      if (opts.folder === 'sent') {
+        sentSeen.push(cursor)
+        if (!withSent) return { uidValidity: NO_FOLDER, lastUid: 0, more: false, messages: [] }
+        const first = (cursor.lastUid ?? 0) < 1 && opts.cap > 0
+        return { uidValidity: '8', lastUid: 1, more: false, messages: first ? [{ providerId: 'sent:8:1', threadId: null, direction: 'out' as const, fromName: 'Amy', fromEmail: 'amy@olypen.com', toLine: 'client@example.com', subject: 'Re: Message 1', excerpt: null, sentAt: new Date(NOW - 500) }] : [] }
+      }
+      seen.push({ cursor, cap: opts.cap })
       const from = cursor.lastUid ?? 0
       const fresh = Array.from({ length: messages }, (_, i) => i + 1).filter((uid) => uid > from).slice(0, opts.cap)
       return {
@@ -245,6 +254,20 @@ describe('a second mailbox, read only (olypen)', () => {
     expect(result).toEqual({ outcome: 'read', added: 3, more: false })
     expect(await readMailbox({ db, connectionKey: KEY, google, fetch: pretendGoogle([]).doFetch, imap: server(4), now: () => new Date(NOW) }, a, id)).toEqual({ outcome: 'read', added: 1, more: false })
     expect(seen.at(-1)!.cursor).toEqual({ uidValidity: '7', lastUid: 3 })
+  })
+
+  it('what she sent from it is read too, once, from its own folder, and shows as hers', async () => {
+    withSent = true
+    const [box] = await inWorkspace(db, a, (tx) => tx.select().from(mailbox))
+    const read = () => readMailbox({ db, connectionKey: KEY, google, fetch: pretendGoogle([]).doFetch, imap: server(4), now: () => new Date(NOW) }, a, box!.id)
+    expect(await read()).toEqual({ outcome: 'read', added: 1, more: false })
+    expect(await read()).toEqual({ outcome: 'read', added: 0, more: false })
+    // Each folder keeps its own place.
+    expect(sentSeen.at(-1)).toEqual({ uidValidity: '8', lastUid: 1 })
+    expect(seen.at(-1)!.cursor).toEqual({ uidValidity: '7', lastUid: 4 })
+    const kept = await inWorkspace(db, a, (tx) => tx.select().from(mailMessage))
+    expect(kept.filter((m) => m.direction === 'out')).toMatchObject([{ providerId: 'sent:8:1', toLine: 'client@example.com', excerpt: null }])
+    withSent = false
   })
 
   it('a Gmail account can be the main mailbox beside it', async () => {

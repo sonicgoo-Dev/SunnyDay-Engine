@@ -150,3 +150,8 @@ the inbox. The sent folder is found by the server's own mark, or by its
 usual names (Sent, Sent Items, Sent Messages, Sent Mail). A server with
 no sent folder is simply read without one. To verify on the real olypen
 server: that its sent folder is found.
+
+The everyday five-minute read of the second mailbox reads its sent folder
+too (Eric, Nov 18, 2026), so her replies from that address show in each
+person's story. Each folder keeps its own place. This changes Build 2's
+reading; the guard test now allows the inbox and the sent folder only.

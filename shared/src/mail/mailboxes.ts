@@ -8,7 +8,7 @@ import { mailMessage, mailbox, type MailboxKind, type MailboxRole, type MailboxS
 import { inWorkspace } from '../db/workspace.js'
 import { enqueue } from '../jobs/queue.js'
 import { messageIdsSince, messageSummary, type MessageSummary } from './gmail.js'
-import { ImapSignInRefused, imapWayIn, readImapInbox, type ImapReader, type ImapWayIn } from './imap.js'
+import { ImapSignInRefused, NO_FOLDER, imapWayIn, readImapInbox, type ImapReader, type ImapWayIn } from './imap.js'
 import { ReconnectNeeded, accessTokenFrom, revoke, type Fetch, type GoogleClient } from './google-token.js'
 
 export const READ_MAILBOX = 'mail.read'
@@ -160,15 +160,28 @@ async function readImapBox(
   const read = deps.imap ?? readImapInbox
   try {
     const wayIn = imapWayIn.parse(JSON.parse(unseal(deps.connectionKey, workspaceId, box.sealed)))
-    const got = await read(wayIn, { uidValidity: box.cursor.uidValidity, lastUid: box.cursor.lastUid }, { firstReadSince: new Date(now.getTime() - FIRST_READ_DAYS * 86_400_000), cap: PER_TURN })
+    const firstReadSince = new Date(now.getTime() - FIRST_READ_DAYS * 86_400_000)
+    const got = await read(wayIn, { uidValidity: box.cursor.uidValidity, lastUid: box.cursor.lastUid }, { firstReadSince, cap: PER_TURN, folder: 'inbox' })
+    const inbox = { uidValidity: got.uidValidity, lastUid: got.lastUid }
     await inWorkspace(deps.db, workspaceId, async (tx) => {
       if (got.messages.length) await tx.insert(mailMessage).values(got.messages.map((s) => ({ ...s, workspaceId, mailboxId: box.id }))).onConflictDoNothing()
       await tx
         .update(mailbox)
-        .set({ cursor: { uidValidity: got.uidValidity, lastUid: got.lastUid }, lastReadAt: sql`now()`, lastProblem: null })
+        .set({ cursor: { ...inbox, ...(box.cursor.sent ? { sent: box.cursor.sent } : {}) }, lastReadAt: sql`now()`, lastProblem: null })
         .where(eq(mailbox.id, box.id))
     })
-    return { outcome: 'read', added: got.messages.length, more: got.more }
+    // Then what she sent from this address (Eric, Nov 18, 2026), so her replies show in each person's story. Read only, like the inbox.
+    const sent = await read(wayIn, box.cursor.sent ?? {}, { firstReadSince, cap: PER_TURN, folder: 'sent' })
+    if (sent.uidValidity !== NO_FOLDER) {
+      await inWorkspace(deps.db, workspaceId, async (tx) => {
+        if (sent.messages.length) await tx.insert(mailMessage).values(sent.messages.map((s) => ({ ...s, workspaceId, mailboxId: box.id }))).onConflictDoNothing()
+        await tx
+          .update(mailbox)
+          .set({ cursor: { ...inbox, sent: { uidValidity: sent.uidValidity, lastUid: sent.lastUid } } })
+          .where(eq(mailbox.id, box.id))
+      })
+    }
+    return { outcome: 'read', added: got.messages.length + sent.messages.length, more: got.more || sent.more }
   } catch (err) {
     if (!(err instanceof ImapSignInRefused)) throw err
     await inWorkspace(deps.db, workspaceId, (tx) =>
