@@ -13,9 +13,11 @@ broker in Port Angeles and Sequim, WA; about ten agents will test with her.
 - Stop at each build's "show Eric" step. Never build ahead of the approved brief.
 - If something in this file turns out to be a bad idea, say so.
 
-The plans live in the "SunnyDay CRM" Claude project: **Master Plan** (what
-and why) and **Build Plan** (22 builds, Gates A to D). When they disagree
-with this file, the plans are newer and win; update this file to match.
+The plans are in `docs/plan/`: `master-plan.md` (what and why) and
+`build-plan.md` (22 builds, Gates A to D, the tracker). They are copies of
+the two live documents in the "SunnyDay CRM" Claude project; when a live
+document is newer, it wins, and the copy here is brought up to date. When
+the plans disagree with this file, the plans win; update this file to match.
 
 ## What this is
 
