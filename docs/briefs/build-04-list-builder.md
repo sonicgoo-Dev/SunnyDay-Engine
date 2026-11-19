@@ -1,27 +1,47 @@
 # Build 4: List Builder
 
-Status: awaiting Eric's approval (written Nov 18, 2026). Nothing is built yet.
+Status: awaiting Eric's approval (written Nov 18, 2026; changed the same
+day at Eric's request to read one year at a time, up to five). Nothing is
+built yet.
 
 This is the first build with a real AI agent, and the first that reads
 years of Amy's real mail. So this brief is longer than the last three.
 The thirteen decisions are at the end; most are a plain "yes".
 
+## Where it lives, and how it avoids overwhelming her
+
+List Builder is not a new screen. It is a card at the top of
+**Contacts**, "Build my list", which opens the confirm page. When she is
+finished, the card goes away.
+
+It works **one year at a time**, and only goes further when she asks:
+
+1. It starts with the **last 12 months** only: the people she will
+   recognise at once, and a small stack.
+2. Before she starts it says how big the job is: "About 60 people to
+   look at, roughly 10 minutes."
+3. After every ten people: **Keep going** or **That's enough for today**.
+4. When a year is done, one button: **Go back another year**. It reads
+   no further until she taps it. She can stop there for good, or come
+   back next week. The furthest it will go is **five years**.
+
 ## What you will be able to do
 
 On a phone, in **Contacts**:
 
-- **Tap "Build my list".** SunnyDay shows what it is about to read, how
-  far back, and roughly what it will cost. Nothing far back is read until
-  that tap.
+- **Tap "Build my list".** SunnyDay shows what it is about to read (the
+  last 12 months), and roughly what it will cost. Nothing older than the
+  14 days it reads today is touched until that tap.
 - **Leave it to work.** It reads in the background. This is not instant:
-  a full mailbox may take an hour or more. Contacts shows how far along
+  a year of a full mailbox may take a while. Contacts shows how far along
   it is. (SunnyDay cannot email her "ready" yet; that arrives in Build 6.)
-- **Confirm in one sitting.** People come up ten at a time, the surest
-  first. Each card shows the name, what List Builder thinks they are
-  (client, lead, business contact), one line of why ("31 emails, 2024 to
-  2025, about the sale of a home on Elm Street"), and the details it
-  found. Each card has **Yes**, **No** and **Change**. Change lets her
-  fix the kind, buyer or seller, the stage, or any detail before saving.
+- **Confirm a year in one short sitting.** People come up ten at a time,
+  the surest first. Each card shows the name, what List Builder thinks
+  they are (client, lead, business contact), one line of why ("31
+  emails this year about the sale of a home on Elm Street"), and the
+  details it found. Each card has **Yes**, **No** and **Change**. Change
+  lets her fix the kind, buyer or seller, the stage, or any detail
+  before saving.
 - **See where every detail came from.** A phone number says "from an
   email on Mar 3, 2025" or "from Google Contacts" or "from your phone
   contacts". The same line stays on the contact page afterwards.
@@ -46,12 +66,18 @@ On a phone, in **Contacts**:
 4. **Nothing is a contact until her tap.** Proposals wait in their own
    place behind the workspace wall. Yes creates the contact through the
    same code as Add by hand, so every Build 3 rule still holds.
+5. **Going back a year** only looks for people not already answered. If
+   an older year shows that someone she already said Yes to has another
+   phone number, that comes up as a small "add this detail?" card.
+
+One honest catch of going year by year: a past client from 2023 who has
+not written since will not appear until she goes back that far.
 
 ## The things this build has to face plainly
 
 **Reading real mail.** Claude Code never reads Amy's mailbox. The build
-is written and tested on made-up mail only. On the live app, the long
-read starts only when Amy taps "Build my list" herself, after you have
+is written and tested on made-up mail only. On the live app, each
+year's read starts only when Amy taps for it herself, after you have
 tried it on made-up data and said "go". If something goes wrong on live,
 I look at counts and error names, never at her mail. No mail text is
 ever written to a log.
@@ -107,12 +133,14 @@ workspace's limit (`withAiBudget`). If the $20 is reached mid-run:
 
 ## Cost
 
-- **The first read of Amy's mail: an estimated $2 to $5**, on the cheap
-  model. It is an estimate because I cannot see how many people are in
-  her mail. The build measures the real cost on made-up mail, and the
-  app shows her an estimate before she taps Start.
-- The stronger model would cost about twenty times as much ($40 to $100)
-  and blow through the limit, for a sorting job the cheap one does well.
+- **About $1 to $2 for each year of Amy's mail, so an estimated $3 to
+  $8 if she goes all five years back**, on the cheap model. It is an
+  estimate because I cannot see how many people are in her mail. The
+  build measures the real cost on made-up mail, and the app shows her an
+  estimate before each year starts. Year by year, the spending comes in
+  small steps she can see.
+- The stronger model would cost about twenty times as much and blow
+  through the limit, for a sorting job the cheap one does well.
 - Nothing new on Render. Google's contacts service is free.
 - This is the first money SunnyDay spends on AI. It needs your approval
   and a Claude API key (below).
@@ -138,9 +166,9 @@ already have a household, since today the two quietly become one.
 
 ## Decisions
 
-1. **How far back: three years** (to November 2023). Real estate moves
-   slowly, and past clients are the point. Going back further costs
-   almost nothing extra, because step 1 uses no AI. *Suggested: three years.*
+1. **How far back: one year at a time, up to five years** (to November
+   2021). The last 12 months first; each further year only when she taps
+   "Go back another year". *Decided by Eric, Nov 18, 2026.*
 2. **Both mailboxes.** Gmail: everything, including mail she sent, which
    is the best sign someone is real. Olypen: its inbox only, since that
    is all SunnyDay can open there. *Suggested: both.*
@@ -154,7 +182,8 @@ already have a household, since today the two quietly become one.
    have Amy reconnect once. *Suggested: yes.*
 6. **Ten cards at a time, each with its own Yes, No, Change, plus one
    "Yes to all ten" button** at the bottom of a page she has scrolled
-   through. Still her tap, and it makes one sitting possible.
+   through. Still her tap. After each ten: "Keep going" or "That's
+   enough for today".
    *Suggested: yes. Say no if you would rather every person gets their own tap.*
 7. **Stages on the way in.** Past client goes in as "Past client". A
    lead goes in as "Talking" (she has plainly corresponded). For someone
@@ -175,7 +204,7 @@ already have a household, since today the two quietly become one.
     "Vercel AI SDK" the Master Plan names. It is the maker's own, it has
     fewer moving parts, and SunnyDay uses only Claude. This changes one
     line of the Master Plan, so it is yours to decide. *Suggested: yes.*
-13. **Only Amy's own tap starts the long read**, after you have tried
+13. **Only Amy's own tap starts each year's read**, after you have tried
     the build on made-up mail and said "go". *Suggested: yes.*
 
 ## Eric's part
@@ -189,20 +218,26 @@ each at the time; none are needed to approve this brief):
   Render on `sunnyday-worker`. Never into a chat or the repo.
 - **Two clicks in the Google project:** switch on the contacts service
   and add the contacts permission to the permission screen.
-- **Ask Amy:** is she comfortable with three years of both mailboxes
-  being read, and the text of some messages going to the AI as described
+- **Ask Amy:** is she comfortable with up to five years of both
+  mailboxes being read, a year at a time when she asks for it, and the
+  text of some messages going to the AI as described
   above? Her earlier OK covered reading; this goes further, so it is
   worth asking again.
 - **Ask Amy,** if she wants phone-only contacts: export them from her
   phone (I will write the steps for her iPhone).
-- **A sitting from Amy** to confirm her list. My guess is 30 to 45
-  minutes; I will know better after the made-up run.
+- **A first short sitting from Amy** for the last 12 months. My guess is
+  10 to 15 minutes; I will know better after the made-up run. Older
+  years are whenever she likes.
 - At the end: try it on your phone with made-up mail, then say "go".
 
 ## Done when
 
-- Amy's Contacts screen holds her real clients after one sitting of
-  confirming.
+- After her first sitting, on the last 12 months, Amy's Contacts screen
+  holds her current clients. (The Build Plan says "her real clients
+  after one sitting"; reading a year at a time changes that, so its line
+  is brought up to date when this brief is approved.)
+- No older year is read until she taps "Go back another year", and it
+  stops at five. A test proves both.
 - Nothing was added without her tap. A test proves no contact can be
   created from a proposal any other way.
 - Each detail shows where it came from, on the card and on the contact page.
